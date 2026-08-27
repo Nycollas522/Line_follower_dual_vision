@@ -45,7 +45,7 @@ ros2 run v4l2_camera v4l2_camera_node --ros-args \
   -p output_encoding:=bgr8
 ```
 
-### 2.3. Listar tó···picos de imagem
+### 2.3. Listar tópicos de imagem
 
 ```bash
 ros2 topic list | grep image

@@ -1,4 +1,4 @@
-# Comandos – Robô···Seguidor de Linha (ROS 2 Jazzy)
+# Comandos – Robô Seguidor de Linha (ROS 2 Jazzy)
 
 Este arquivo reúne os comandos mais importantes para operar e debugar o sistema no Raspberry Pi 4, incluindo:
 

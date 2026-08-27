@@ -1,326 +1,266 @@
-# Comandos Gerais – Robô···Seguidor de Linha (ROS 2 Jazzy)
+# Comandos – Robô···Seguidor de Linha (ROS 2 Jazzy)
 
-Este arquivo reúne os comandos principais para operar toda a arquitetura do projeto no Raspberry Pi 4, incluindo:
+Este arquivo reúne os comandos mais importantes para operar e debugar o sistema no Raspberry Pi 4, incluindo:
 
-- Câmeras (inferior e superior)  d
-- Visã··o da linha e marcadores  
-- Filtro de Kalman  
-- Controle (PID) e cinemá··tica  
-- Odometria (encoders)  
-- Atuaç··o (motores via Arduino)  
-- Node principal / launch do sistema  
-
-> Ajuste os nomes de pacotes e nodes conforme a estrutura real do seu workspace (`ros2 pkg list`, `ros2 node list`).
+- Ambiente ROS  
+- Câmeras  
+- Motores / serial  
+- Odometria / encoders  
+- IMU  
+- Teleop  
+- Comandos úteis de diagnóstico  
 
 ---
 
-## 1. Configuraç··o básica do ambiente
+## 1. Configurar ambiente ROS
 
-Carregar ROS 2 Jazzy (se ainda nã··o estiver no `.bashrc`):
-
-```bash
-source /opt/ros/jazzy/setup.bash
-```
-
-Colocar ROS no `.bashrc` (opcional, para nã··o precisar dar `source` sempre):
-
-```bash
-nano ~/.bashrc
-```
-
-No final do arquivo:
+### 1.1. Carregar ROS e workspace
 
 ```bash
 # ROS 2 Jazzy
 source /opt/ros/jazzy/setup.bash
+
+# Workspace do projeto (ajuste o caminho se necessário)
+source ~/ros2_ws/install/setup.bash
 ```
 
-Salvar (`Ctrl+O` → `Enter` → `Ctrl+X`) e aplicar:
-
-```bash
-source ~/.bashrc
-```
+> Dica: coloque esses dois `source` no `~/.bashrc` para não precisar digitar sempre.
 
 ---
 
-## 2. Instalar pacotes básicos (visã··o e utilitá··rios)
+## 2. Câmeras
+
+### 2.1. Listar dispositivos de vídeo
 
 ```bash
-sudo apt update
-sudo apt install ros-jazzy-v4l2-camera ros-jazzy-rqt-image-view ros-jazzy-image-transport
+v4l2-ctl --list-devices
 ```
 
-Confirmar instalaç··o:
-
-```bash
-ros2 pkg list | grep -E 'v4l2|rqt_image|image_transport'
-```
-
----
-
-## 3. Comandos por subsistema
-
-### 3.1. Câmeras
-
-#### Câmera inferior (linha)
+### 2.2. Rodar câmera (ex.: câmera inferior)
 
 ```bash
 ros2 run v4l2_camera v4l2_camera_node --ros-args \
   -p video_device:=/dev/video0 \
   -p image_size:="[640, 480]" \
-  -p output_encoding:=bgr8 \
-  --ros-args -r /image_raw:=/camera/bottom/image_raw
+  -p output_encoding:=bgr8
 ```
 
-#### Câmera superior (contexto / antecipaç··o)
-
-Ajuste o dispositivo (ex.: `/dev/video1`):
+### 2.3. Listar tó···picos de imagem
 
 ```bash
-ros2 run v4l2_camera v4l2_camera_node --ros-args \
-  -p video_device:=/dev/video1 \
-  -p image_size:="[640, 480]" \
-  -p output_encoding:=bgr8 \
-  --ros-args -r /image_raw:=/camera/top/image_raw
+ros2 topic list | grep image
 ```
 
-> Em muitos casos, cada câmera cria seu próprio nó (`v4l2_camera_node_1`, `v4l2_camera_node_2`, etc.) ou usa namespaces. Ajuste conforme seu launch.
-
----
-
-### 3.2. Visualizaç··o de imagem
+### 2.4. Visualizar imagem
 
 ```bash
 ros2 run rqt_image_view rqt_image_view
 ```
 
-Tó···picos esperados:
+Selecione o tópico da câmera, por exemplo:
 
 - `/camera/bottom/image_raw`  
 - `/camera/top/image_raw`  
 
----
-
-### 3.3. Visã··o da linha e marcadores
-
-Nomes típicos (ajuste conforme seu pacote):
-
-```bash
-# Processamento da linha (centroide, erro lateral)
-ros2 run ic_vision visao_linha_node
-
-# Detecç··o de marcadores visuais
-ros2 run ic_vision marcadores_node
-```
-
-Tó···picos típicos de saída:
-
-- `/line/error`  
-- `/line/centroid`  
-- `/line/status`  
-- `/markers/event`  
+(ajuste conforme o namespace usado no seu sistema)
 
 ---
 
-### 3.4. Filtro de Kalman (erro lateral)
+## 3. Motores / Serial / Encoders
+
+### 3.1. Construir pacote da serial (apenas quando modificar o código)
 
 ```bash
-ros2 run ic_control kalman_node
+cd ~/ros2_ws
+colcon build --packages-select motor_serial --symlink-install
 ```
 
-Entrada/saí··da típicas:
+### 3.2. Rodar nó da serial (motores + encoders)
 
-- Entrada: `/line/error`  
-- Saí··da: `/line/error_filtered`  
+```bash
+ros2 run motor_serial motor_serial_node --ros-args \
+  -p port:=/dev/ttyACM0
+```
+
+> Ajuste `port` caso seu Arduino aparecê·· em outra porta (ex.: `/dev/ttyACM1`, `/dev/ttyUSB0`).
+
+### 3.3. Monitorar comunicação com Arduino (PlatformIO)
+
+```bash
+~/.platformio/penv/bin/platformio device monitor \
+  --port /dev/ttyACM0 \
+  --baud 115200
+```
 
 ---
 
-### 3.5. Controle (PID) e cinemá··tica
+## 4. Tópicos importantes do sistema
+
+### 4.1. Listar tó···picos e nodes
 
 ```bash
-# Controle PID + geraç··o de cmd_vel
-ros2 run ic_control controle_node
-
-# Cinemá··tica: cmd_vel → velocidades das rodas
-ros2 run ic_control cinematica_node
+ros2 topic list
+ros2 node list
 ```
 
-Tó···picos típicos:
+### 4.2. Odometria / encoders
 
-- Entrada: `/line/error_filtered`, `/nav/state`  
-- Saí··da: `/cmd_vel` (controle)  
-- Saí··da: `/wheel_cmd` (cinemá··tica)  
+```bash
+# Estados das rodas (velocidade, posição, etc.)
+ros2 topic echo /wheel_states
+
+# Contagem de ticks dos encoders
+ros2 topic echo /wheel_encoder_ticks
+
+# Odometria estimada
+ros2 topic info /odom
+ros2 topic echo /odom
+```
+
+### 4.3. IMU
+
+```bash
+ros2 topic echo /imu/data_raw
+```
 
 ---
 
-### 3.6. Odometria (encoders)
+## 5. Controle / Teleop
 
-Node que lê os encoders (via serial com Arduino) e publica odometria:
+### 5.1. Teleop com teclado
 
 ```bash
-ros2 run ic_control encoder_node
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ```
 
-Tó···picos típicos:
+### 5.2. Publicar comando de velocidade manualmente
 
-- Entrada: `/serial/rx` (dados dos encoders)  
-- Saí··da: `/wheel_states`, `/odom`  
+```bash
+ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.00, y: 0.0}, angular: {z: 0.0}}"
+```
+
+Ajuste `linear.x` e `angular.z` para mover o robô··· (ex.: `x: 0.2`, `z: 0.3`).
 
 ---
 
-### 3.7. Atuaç··o (motores via Arduino)
+## 6. Debug e diagnóstico
 
-Bridge serial + atuaç··o:
-
-```bash
-# Ponte serial ROS ↔ Arduino
-ros2 run ic_control serial_bridge_node
-
-# Nó de atuaç··o (converte wheel_cmd em comandos para o Arduino)
-ros2 run ic_control atuacao_node
-```
-
-Tó···picos típicos:
-
-- Entrada: `/wheel_cmd`  
-- Saí··da: `/serial/tx` (comandos para o Arduino)  
-
----
-
-### 3.8. Gerenciador de estados e logger
-
-```bash
-# Máquinade estados (navegaç··o)
-ros2 run ic_control gerenciador_estados_node
-
-# Logger / gravaç··o de dados experimentais
-ros2 run ic_control logger_node
-```
-
-Tó···picos relacionados:
-
-- `/nav/state`  
-- `/line/status`  
-- `/markers/event`  
-
----
-
-## 4. Node principal / Launch do sistema
-
-Idealmente, vocí·· terá um launch que sobe todos os nodes de uma vez.
-
-Exemplo de comando (ajuste o nome do pacote):
-
-```bash
-ros2 launch ic_bringup seguidor.launch.py
-```
-
-Ou, se houver um node “principal” que coordena tudo:
-
-```bash
-ros2 run ic_bringup principal_node
-```
-
-Dentro do launch, normalmente sã··o incluí··dos:
-
-- `camera_inferior_node`  
-- `camera_superior_node`  
-- `visao_linha_node`  
-- `marcadores_node`  
-- `kalman_node`  
-- `controle_node`  
-- `cinematica_node`  
-- `encoder_node`  
-- `serial_bridge_node`  
-- `atuacao_node`  
-- `gerenciador_estados_node`  
-- `logger_node`  
-
-Ajuste os nomes de pacotes (`ic_vision`, `ic_control`, `ic_bringup`, etc.) conforme a estrutura real do seu workspace.
-
----
-
-## 5. Comandos de diagnóstico
-
-Ver nodes ativos:
+### 6.1. Ver nodes ativos
 
 ```bash
 ros2 node list
 ```
 
-Ver tó···picos:
+### 6.2. Ver tópicos
 
 ```bash
 ros2 topic list
 ```
 
-Ver informações de um tó···pico:
+### 6.3. Informações de um tópico
 
 ```bash
-ros2 topic info /line/error --verbose
-ros2 topic info /cmd_vel --verbose
-ros2 topic info /odom --verbose
+ros2 topic info /odom
+ros2 topic info /wheel_states
+ros2 topic info /cmd_vel
 ```
 
-Ver mensagens de exemplo:
+### 6.4. Echo de tópicos específicos
 
 ```bash
-ros2 topic echo /line/error --once
-ros2 topic echo /cmd_vel --once
-ros2 topic echo /odom --once
-```
-
-Ver taxas de publicaç··o:
-
-```bash
-ros2 topic hz /camera/bottom/image_raw
-ros2 topic hz /line/error
-ros2 topic hz /cmd_vel
+ros2 topic echo /wheel_encoder_ticks
+ros2 topic echo /wheel_states
+ros2 topic echo /imu/data_raw
+ros2 topic echo /odom
 ```
 
 ---
 
-## 6. Resumo dos comandos “chave”
+## 7. Acesso remoto ao Raspberry
 
-- **Carregar ROS (se nã··o estiver no `.bashrc`):**
+### 7.1. SSH simples
+
+```bash
+ssh bolt@192.168.0.XXX
+```
+
+Substitua `192.168.0.XXX` pelo IP real do Raspberry.
+
+### 7.2. SSH com encaminhamento gráfico (para abrir janelas no PC)
+
+```bash
+ssh -Y bolt@192.168.0.XXX
+```
+
+Depois, no Raspberry:
+
+```bash
+echo $DISPLAY          # deve mostrar algo como localhost:10.0
+ros2 run rqt_image_view rqt_image_view
+```
+
+---
+
+## 8. Resumo rápido – comandos “chave”
+
+- **Ambiente:**
 
   ```bash
   source /opt/ros/jazzy/setup.bash
+  source ~/ros2_ws/install/setup.bash
   ```
 
-- **Câ··meras:**
+- **Câmera:**
 
   ```bash
+  v4l2-ctl --list-devices
   ros2 run v4l2_camera v4l2_camera_node --ros-args \
     -p video_device:=/dev/video0 \
     -p image_size:="[640, 480]" \
     -p output_encoding:=bgr8
-  ```
-
-- **Visualizar imagem:**
-
-  ```bash
   ros2 run rqt_image_view rqt_image_view
   ```
 
-- **Nodes principais do projeto (exemplo):**
+- **Motores / serial:**
 
   ```bash
-  ros2 run ic_vision visao_linha_node
-  ros2 run ic_control kalman_node
-  ros2 run ic_control controle_node
-  ros2 run ic_control cinematica_node
-  ros2 run ic_control encoder_node
-  ros2 run ic_control serial_bridge_node
-  ros2 run ic_control atuacao_node
+  colcon build --packages-select motor_serial --symlink-install
+  ros2 run motor_serial motor_serial_node --ros-args \
+    -p port:=/dev/ttyACM0
   ```
 
-- **Launch principal (ajustar nome):**
+- **Odometria / encoders / IMU:**
 
   ```bash
-  ros2 launch ic_bringup seguidor.launch.py
+  ros2 topic echo /wheel_encoder_ticks
+  ros2 topic echo /wheel_states
+  ros2 topic echo /odom
+  ros2 topic echo /imu/data_raw
+  ```
+
+- **Teleop:**
+
+  ```bash
+  ros2 run teleop_twist_keyboard teleop_twist_keyboard
+  ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist \
+    "{linear: {x: 0.2, y: 0.0}, angular: {z: 0.0}}"
+  ```
+
+- **Diagnóstico:**
+
+  ```bash
+  ros2 node list
+  ros2 topic list
+  ros2 topic info /odom
+  ```
+
+- **Acesso remoto:**
+
+  ```bash
+  ssh -Y bolt@192.168.0.XXX
   ```
 
 ---
 
-Use este arquivo como referência rápida para subir o sistema completo e para testar cada subsistema de forma isolada.
+Use este arquivo como referência principal para operar e debugar o robô··· no dia a dia.

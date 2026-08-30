@@ -1,6 +1,6 @@
 # Comandos – Robô Seguidor de Linha (ROS 2 Jazzy)
 
-Este arquivo reúne os comandos mais importantes para operar e debugar o sistema no Raspberry Pi, incluindo:
+Este arquivo reúne os comandos mais importantes para operar e debugar o sistema no Raspberry Pi (Ubuntu 24.04), incluindo:
 
 - Ambiente ROS  
 - Câmeras (CSI e USB)  

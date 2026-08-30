@@ -4,7 +4,7 @@ Este arquivo reúne os comandos mais importantes para operar e debugar o sistema
 
 - Ambiente ROS  
 - Câmeras (CSI e USB)  
-- Visã··o computacional (linha, centroide, erro)  
+- Visão computacional (linha, centroide, erro)  
 - Controle (PID)  
 - Motores / serial  
 - Odometria / encoders  

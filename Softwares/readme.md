@@ -102,7 +102,7 @@ Selecione o tópico da câmera, por exemplo:
 
 ---
 
-## 3. Visã··o computacional (linha e centroide)
+## 3. Visão computacional (linha e centroide)
 
 ### 3.1. Rodar nó de visão da linha
 

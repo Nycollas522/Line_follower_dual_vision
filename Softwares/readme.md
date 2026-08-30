@@ -1,4 +1,4 @@
-# Comandos – Robô···Seguidor de Linha (ROS 2 Jazzy)
+# Comandos – Robô Seguidor de Linha (ROS 2 Jazzy)
 
 Este arquivo reúne os comandos mais importantes para operar e debugar o sistema no Raspberry Pi, incluindo:
 
@@ -77,7 +77,7 @@ ros2 run v4l2_camera v4l2_camera_node --ros-args \
 
 Substitua `/dev/videoX` pelo dispositivo correto (ex.: `/dev/video0`).
 
-### 2.3. Listar tó···picos de imagem
+### 2.3. Listar tópicos de imagem
 
 ```bash
 ros2 topic list | grep -E 'image|camera'
@@ -104,7 +104,7 @@ Selecione o tópico da câmera, por exemplo:
 
 ## 3. Visã··o computacional (linha e centroide)
 
-### 3.1. Rodar nó de visã··o da linha
+### 3.1. Rodar nó de visão da linha
 
 ```bash
 ros2 run line_vision visao_linha_node
@@ -133,7 +133,7 @@ Selecione:
 
 Você·· verá a imagem com:
 
-- Cí··rculo vermelho no centroide da linha;  
+- Circulo vermelho no centroide da linha;  
 - Linha azul de referência no centro da imagem;  
 - Texto com o valor do erro lateral.  
 
@@ -162,7 +162,7 @@ Este nó:
 
 ### 4.2. Ajustar parâ··metros do PID
 
-Listar parâ··metros:
+Listar parâmetros:
 
 ```bash
 ros2 param list | grep controle_node
@@ -216,9 +216,9 @@ ros2 run motor_serial motor_serial_node --ros-args \
 
 ---
 
-## 6. Tó···picos importantes do sistema
+## 6. Tópicos importantes do sistema
 
-### 6.1. Listar nó···s e tó···picos
+### 6.1. Listar nós e tópicos
 
 ```bash
 ros2 node list
@@ -299,7 +299,7 @@ ros2 topic echo /cmd_vel
 
 ## 9. Debug e diagnóstico
 
-### 9.1. Ver nó···s ativos
+### 9.1. Ver nós ativos
 
 ```bash
 ros2 node list
@@ -308,7 +308,7 @@ ros2 node info /controle_node
 ros2 node info /motor_serial_node
 ```
 
-### 9.2. Ver tó···picos
+### 9.2. Ver tópicos
 
 ```bash
 ros2 topic list
@@ -317,7 +317,7 @@ ros2 topic hz /line/error
 ros2 topic hz /cmd_vel
 ```
 
-### 9.3. Informações de um tó···pico
+### 9.3. Informações de um tópico
 
 ```bash
 ros2 topic info /camera/image_raw --verbose
@@ -325,7 +325,7 @@ ros2 topic info /line/error --verbose
 ros2 topic info /cmd_vel --verbose
 ```
 
-### 9.4. Echo de tó···picos específicos
+### 9.4. Echo de tópicos específicos
 
 ```bash
 ros2 topic echo /wheel_encoder_ticks
@@ -372,7 +372,7 @@ ros2 run rqt_image_view rqt_image_view
   source ~/ros2_ws/install/setup.bash
   ```
 
-- **Câ··mera CSI:**
+- **Câmera CSI:**
 
   ```bash
   rpicam-hello --list-cameras
@@ -382,7 +382,7 @@ ros2 run rqt_image_view rqt_image_view
     -p height:=480
   ```
 
-- **Câ··mera USB:**
+- **Câmera USB:**
 
   ```bash
   v4l2-ctl --list-devices
@@ -398,7 +398,7 @@ ros2 run rqt_image_view rqt_image_view
   ros2 run rqt_image_view rqt_image_view
   ```
 
-- **Visã··o da linha:**
+- **Visão da linha:**
 
   ```bash
   ros2 run line_vision visao_linha_node
@@ -440,7 +440,7 @@ ros2 run rqt_image_view rqt_image_view
     "{linear: {x: 0.2, y: 0.0}, angular: {z: 0.0}}"
   ```
 
-- **Diagnó···stico:**
+- **Diagnóstico:**
 
   ```bash
   ros2 node list

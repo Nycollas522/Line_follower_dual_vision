@@ -1,125 +1,132 @@
 # Comandos – Robô Seguidor de Linha (ROS 2 Jazzy)
 
-Este arquivo reúne os comandos mais importantes para operar e debugar o sistema no Raspberry Pi (Ubuntu 24.04), incluindo:
-
-- Ambiente ROS  
-- Câmeras (CSI e USB)  
-- Visão computacional (linha, centroide, erro)  
-- Controle (PID)  
-- Motores / serial  
-- Odometria / encoders  
-- IMU  
-- Teleop  
-- Comandos úteis de diagnóstico  
+Este arquivo reúne os comandos principais para operar e debugar o robô no Raspberry Pi com Ubuntu 24.04 e ROS 2 Jazzy.
 
 ---
 
 ## 1. Configurar ambiente ROS
 
-### 1.1. Carregar ROS e workspace
-
 ```bash
-# ROS 2 Jazzy
 source /opt/ros/jazzy/setup.bash
-
-# Workspace do projeto (ajuste o caminho se necessário)
 source ~/ros2_ws/install/setup.bash
 ```
-
-> Dica: coloque esses dois `source` no `~/.bashrc` para não precisar digitar sempre.
 
 ---
 
 ## 2. Câmeras
 
-### 2.1. Câmera CSI (OV5647 / OV9281)
+### 2.1. Câmera CSI inferior
 
-#### 2.1.1. Listar câmeras detectadas
+A câmera CSI usa o `camera_ros` baseado em libcamera. Para listar as câmeras libcamera disponíveis:
 
 ```bash
 rpicam-hello --list-cameras
 ```
 
-#### 2.1.2. Rodar nó da câmera CSI
+Em algumas instalações, o comando equivalente é:
+
+```bash
+libcamera-hello --list-cameras
+```
+
+Para testar a CSI inferior:
 
 ```bash
 ros2 run camera_ros camera_node --ros-args \
   -p camera:=0 \
   -p width:=640 \
-  -p height:=480
+  -p height:=480 \
+  -r image_raw:=/camera_bottom/image_raw
 ```
 
-Se houver mais de uma câmera, ajuste o índice:
+> Os vários `/dev/video0` até `/dev/video7` exibidos por `v4l2-ctl` não representam necessariamente oito câmeras. No Raspberry Pi 5, eles são nós internos do pipeline CSI/PiSP. Para selecionar uma câmera CSI, use o índice listado por `rpicam-hello --list-cameras`, e não o número de `/dev/videoN`.
 
-```bash
-ros2 run camera_ros camera_node --ros-args \
-  -p camera:=1 \
-  -p width:=640 \
-  -p height:=480
-```
+### 2.2. Segunda câmera USB
 
-### 2.2. Câmera USB (webcam)
-
-#### 2.2.1. Listar dispositivos de vídeo
+Depois de conectar a webcam USB, identifique o dispositivo:
 
 ```bash
 v4l2-ctl --list-devices
 ```
 
-#### 2.2.2. Rodar câmera USB
+Também é possível verificar os nós disponíveis:
 
 ```bash
-ros2 run v4l2_camera v4l2_camera_node --ros-args \
-  -p video_device:=/dev/videoX \
-  -p image_size:="[640, 480]" \
-  -p output_encoding:=bgr8
+ls -l /dev/video*
 ```
 
-Substitua `/dev/videoX` pelo dispositivo correto (ex.: `/dev/video0`).
+A câmera USB aparecerá com um nome de fabricante e um ou mais dispositivos `/dev/videoN`. O parâmetro `camera` do nó precisa ser testado de acordo com o fork instalado. Primeiro tente o índice usado pelo nó:
 
-### 2.3. Listar tópicos de imagem
+```bash
+ros2 run camera_ros camera_node --ros-args \
+  -p camera:=0 \
+  -p width:=640 \
+  -p height:=480 \
+  -r image_raw:=/camera_top/image_raw
+```
+
+Se o fork aceitar caminho de dispositivo, prefira o caminho explícito:
+
+```bash
+ros2 run camera_ros camera_node --ros-args \
+  -p device:=/dev/videoN \
+  -p width:=640 \
+  -p height:=480 \
+  -r image_raw:=/camera_top/image_raw
+```
+
+Substitua `/dev/videoN` pelo dispositivo real da webcam USB.
+
+### 2.3. Confirmar os tópicos das câmeras
 
 ```bash
 ros2 topic list | grep -E 'image|camera'
+ros2 topic hz /camera_bottom/image_raw
+ros2 topic hz /camera_top/image_raw
 ```
 
-Tó···picos típicos:
-
-- `/camera/image_raw` (CSI com `camera_ros`)  
-- `/image_raw` (USB com `v4l2_camera`)  
-
-### 2.4. Visualizar imagem
+### 2.4. Visualizar imagens
 
 ```bash
 ros2 run rqt_image_view rqt_image_view
 ```
 
-Selecione o tópico da câmera, por exemplo:
+No `rqt_image_view`, selecione:
 
-- `/camera/image_raw`  
-- `/camera/image_raw/compressed`  
-- `/line/debug_image` (saí··da do nó de visão com centroide desenhado)  
+```text
+/camera_bottom/image_raw
+/camera_top/image_raw
+/line/debug_image
+/line/mask
+```
 
 ---
 
-## 3. Visão computacional (linha e centroide)
+## 3. Visão computacional da linha
 
-### 3.1. Rodar nó de visão da linha
+### 3.1. Executar separadamente
 
 ```bash
-ros2 run line_vision visao_linha_node
+ros2 run robot_bringup visao_linha_node
 ```
 
-Este nó:
+O nó de visão deve assinar:
 
-- Assina `/camera/image_raw` (ou `/image_raw`, conforme configurado);  
-- Publica:
-  - `/line/centroid` (geometry_msgs/msg/Point)  
-  - `/line/error` (std_msgs/msg/Float32)  
-  - `/line/status` (std_msgs/msg/Bool)  
-  - `/line/debug_image` (sensor_msgs/msg/Image)  
+```text
+/camera_bottom/image_raw
+```
 
-### 3.2. Visualizar imagem de debug
+E publicar:
+
+```text
+/line/centroid
+/line/error
+/line/status
+/line/debug_image
+/line/mask
+```
+
+### 3.2. Visualizar a imagem processada
 
 ```bash
 ros2 run rqt_image_view rqt_image_view
@@ -131,82 +138,90 @@ Selecione:
 /line/debug_image
 ```
 
-Você·· verá a imagem com:
-
-- Circulo vermelho no centroide da linha;  
-- Linha azul de referência no centro da imagem;  
-- Texto com o valor do erro lateral.  
-
-### 3.3. Monitorar erro e centroide
+### 3.3. Monitorar a visão
 
 ```bash
 ros2 topic echo /line/error
 ros2 topic echo /line/centroid
 ros2 topic echo /line/status
+ros2 topic hz /line/debug_image
 ```
 
 ---
 
-## 4. Controle (PID)
+## 4. Controle PID
 
-### 4.1. Rodar nó de controle
+### 4.1. Executar separadamente
 
 ```bash
-ros2 run line_control controle_node
+ros2 run robot_bringup controle_node
 ```
 
-Este nó:
+O controle inicia desabilitado para impedir que o robô comece a andar automaticamente.
 
-- Assina `/line/error`;  
-- Publica `/cmd_vel` (geometry_msgs/msg/Twist).  
-
-### 4.2. Ajustar parâ··metros do PID
-
-Listar parâmetros:
+### 4.2. Habilitar e desabilitar
 
 ```bash
-ros2 param list | grep controle_node
+# Habilitar
+ros2 topic pub --once /controle/enable std_msgs/msg/Bool "{data: true}"
+
+# Desabilitar
+ros2 topic pub --once /controle/enable std_msgs/msg/Bool "{data: false}"
 ```
 
-Ajustar ganhos e velocidades:
+### 4.3. Ajustar parâmetros
 
 ```bash
+ros2 param list /controle_node
 ros2 param set /controle_node Kp 0.5
 ros2 param set /controle_node Ki 0.0
 ros2 param set /controle_node Kd 0.1
-
 ros2 param set /controle_node v_linear 0.2
 ros2 param set /controle_node v_angular_max 0.4
 ros2 param set /controle_node error_max 200.0
 ```
 
-### 4.3. Monitorar `/cmd_vel`
+### 4.4. Monitorar `/cmd_vel`
 
 ```bash
 ros2 topic echo /cmd_vel
+ros2 topic hz /cmd_vel
 ```
 
 ---
 
-## 5. Motores / Serial / Encoders
+## 5. Motores, servo e comunicação serial
 
-### 5.1. Construir pacote da serial (apenas quando modificar o código)
+### 5.1. Descobrir a porta do ESP32
 
 ```bash
-cd ~/ros2_ws
-colcon build --packages-select motor_serial --symlink-install
+ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
 ```
 
-### 5.2. Rodar nó da serial (motores + encoders)
+Exemplo de execução do nó serial:
 
 ```bash
-ros2 run motor_serial motor_serial_node --ros-args \
+ros2 run robot_bringup motor_serial_node --ros-args \
   -p port:=/dev/ttyACM0
 ```
 
-> Ajuste `port` caso seu Arduino apareç··a em outra porta (ex.: `/dev/ttyACM1`, `/dev/ttyUSB0`).
+Se o executável ou pacote tiver outro nome, confira com:
 
-### 5.3. Monitorar comunicação com Arduino (PlatformIO)
+```bash
+ros2 pkg executables robot_bringup
+```
+
+O nó serial assina `/cmd_vel` e `/servo/command`, e publica dados dos motores, encoders, IMU, bateria, servo e odometria.
+
+### 5.2. Compilar após alterações
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select robot_bringup --symlink-install
+source install/setup.bash
+```
+
+### 5.3. Monitorar a serial diretamente
 
 ```bash
 ~/.platformio/penv/bin/platformio device monitor \
@@ -216,244 +231,349 @@ ros2 run motor_serial motor_serial_node --ros-args \
 
 ---
 
-## 6. Tópicos importantes do sistema
+## 6. Controle manual do servo
 
-### 6.1. Listar nós e tópicos
+O comando do servo usa ângulo lógico de `-90` a `+90` graus:
+
+```text
+-90° = extremo de um lado
+  0° = centro
++90° = extremo do outro lado
+```
+
+O ESP32 converte esse intervalo para o servo físico de `0` a `180` graus.
+
+### 6.1. Colocar no centro
+
+```bash
+ros2 topic pub --once /servo/command \
+  std_msgs/msg/Float32 "{data: 0.0}"
+```
+
+### 6.2. Testar os extremos
+
+```bash
+# Um lado
+ros2 topic pub --once /servo/command \
+  std_msgs/msg/Float32 "{data: -90.0}"
+
+# Outro lado
+ros2 topic pub --once /servo/command \
+  std_msgs/msg/Float32 "{data: 90.0}"
+```
+
+### 6.3. Testar ângulos intermediários
+
+```bash
+ros2 topic pub --once /servo/command \
+  std_msgs/msg/Float32 "{data: -45.0}"
+
+ros2 topic pub --once /servo/command \
+  std_msgs/msg/Float32 "{data: 45.0}"
+```
+
+### 6.4. Publicar continuamente
+
+```bash
+ros2 topic pub -r 10 /servo/command \
+  std_msgs/msg/Float32 "{data: 0.0}"
+```
+
+Finalize com `Ctrl+C`.
+
+### 6.5. Monitorar o retorno do servo
+
+```bash
+ros2 topic echo /servo/state
+ros2 topic hz /servo/state
+```
+
+Se o sentido físico estiver invertido, altere a conversão no firmware antes de testar novamente:
+
+```cpp
+lroundf(bounded + 90.0f)
+```
+
+para:
+
+```cpp
+lroundf(90.0f - bounded)
+```
+
+---
+
+## 7. Tópicos de sensores e estado
 
 ```bash
 ros2 node list
 ros2 topic list
 ```
 
-### 6.2. Odometria / encoders
+### Encoders e rodas
 
 ```bash
-# Estados das rodas (velocidade, posição, etc.)
-ros2 topic echo /wheel_states
-
-# Contagem de ticks dos encoders
 ros2 topic echo /wheel_encoder_ticks
-
-# Odometria estimada
-ros2 topic info /odom
-ros2 topic echo /odom
+ros2 topic echo /wheel_states
 ```
 
-### 6.3. IMU
+### Odometria
+
+```bash
+ros2 topic info /odom
+ros2 topic echo /odom
+ros2 topic hz /odom
+```
+
+### IMU
 
 ```bash
 ros2 topic echo /imu/data_raw
+ros2 topic hz /imu/data_raw
 ```
+
+### Bateria
+
+```bash
+ros2 topic echo /battery/voltage
+ros2 topic hz /battery/voltage
+```
+
+A tensão é medida pelo divisor resistivo de `100 kΩ` e `33 kΩ` conectado ao ADC do ESP32.
 
 ---
 
-## 7. Controle / Teleop
+## 8. Teleop e comandos manuais
 
-### 7.1. Teleop com teclado
+### 8.1. Teleop com teclado
 
 ```bash
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ```
 
-### 7.2. Publicar comando de velocidade manualmente
+### 8.2. Publicar comando manual
 
 ```bash
 ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist \
-  "{linear: {x: 0.00, y: 0.0}, angular: {z: 0.0}}"
+  "{linear: {x: 0.10, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
 ```
 
-Ajuste `linear.x` e `angular.z` para mover o robô··· (ex.: `x: 0.2`, `z: 0.3`).
+### 8.3. Parar os motores
+
+```bash
+ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
+```
+
+Ou desabilite o controle:
+
+```bash
+ros2 topic pub --once /controle/enable std_msgs/msg/Bool "{data: false}"
+```
 
 ---
 
-## 8. Fluxo completo – seguimento de linha
+## 9. Fluxo recomendado para teste
 
-Para fazer o robô··· seguir a linha, rode na ordem:
+### 9.1. Compilar
 
 ```bash
-# Terminal 1 – câmera
+cd ~/ros2_ws
+colcon build --packages-select robot_bringup --symlink-install
+source install/setup.bash
+```
+
+### 9.2. Iniciar a câmera inferior
+
+```bash
 ros2 run camera_ros camera_node --ros-args \
   -p camera:=0 \
   -p width:=640 \
-  -p height:=480
+  -p height:=480 \
+  -r image_raw:=/camera_bottom/image_raw
+```
 
-# Terminal 2 – visão
-ros2 run line_vision visao_linha_node
+### 9.3. Iniciar a câmera superior USB
 
-# Terminal 3 – controle
-ros2 run line_control controle_node
+Use o dispositivo `/dev/videoN` identificado com `v4l2-ctl`:
 
-# Terminal 4 – motores
-ros2 run motor_serial motor_serial_node --ros-args \
+```bash
+ros2 run camera_ros camera_node --ros-args \
+  -p device:=/dev/videoN \
+  -p width:=640 \
+  -p height:=480 \
+  -r image_raw:=/camera_top/image_raw
+```
+
+### 9.4. Iniciar visão, controle e serial
+
+```bash
+ros2 run robot_bringup visao_linha_node
+ros2 run robot_bringup controle_node
+ros2 run robot_bringup motor_serial_node --ros-args \
   -p port:=/dev/ttyACM0
 ```
 
-Monitore:
+### 9.5. Conferir antes de liberar as rodas
 
 ```bash
-ros2 topic echo /line/error
-ros2 topic echo /cmd_vel
+ros2 node list
+ros2 topic list
+ros2 topic hz /camera_bottom/image_raw
+ros2 topic hz /camera_top/image_raw
+ros2 topic hz /line/debug_image
+ros2 topic echo /battery/voltage
+ros2 topic echo /servo/state
+```
+
+Mantenha as rodas suspensas durante o primeiro teste. Só depois habilite:
+
+```bash
+ros2 topic pub --once /controle/enable std_msgs/msg/Bool "{data: true}"
 ```
 
 ---
 
-## 9. Debug e diagnóstico
+## 10. Launch completo
 
-### 9.1. Ver nós ativos
+Depois de criar e compilar o pacote `robot_bringup`:
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select robot_bringup --symlink-install
+source install/setup.bash
+ros2 launch robot_bringup bringup_dual_camera.launch.py
+```
+
+O launch deve publicar, idealmente:
+
+```text
+/camera_bottom/image_raw
+/camera_top/image_raw
+```
+
+Confira com:
+
+```bash
+ros2 topic list | grep -E 'image|camera'
+ros2 node list
+```
+
+---
+
+## 11. Diagnóstico
+
+### Ver nós e conexões
 
 ```bash
 ros2 node list
 ros2 node info /visao_linha_node
 ros2 node info /controle_node
-ros2 node info /motor_serial_node
+ros2 node info /motor_serial_omni
+rqt_graph
 ```
 
-### 9.2. Ver tópicos
+### Ver parâmetros do nó serial
 
 ```bash
-ros2 topic list
-ros2 topic hz /camera/image_raw
-ros2 topic hz /line/error
-ros2 topic hz /cmd_vel
+ros2 param list /motor_serial_omni
+ros2 param get /motor_serial_omni port
+ros2 param get /motor_serial_omni servo_command_topic
+ros2 param get /motor_serial_omni battery_topic
 ```
 
-### 9.3. Informações de um tópico
+### Ver informações dos tópicos
 
 ```bash
-ros2 topic info /camera/image_raw --verbose
+ros2 topic info /camera_bottom/image_raw --verbose
+ros2 topic info /camera_top/image_raw --verbose
 ros2 topic info /line/error --verbose
 ros2 topic info /cmd_vel --verbose
+ros2 topic info /servo/command --verbose
+ros2 topic info /battery/voltage --verbose
 ```
 
-### 9.4. Echo de tópicos específicos
+### Verificar a visão
 
 ```bash
-ros2 topic echo /wheel_encoder_ticks
-ros2 topic echo /wheel_states
-ros2 topic echo /imu/data_raw
-ros2 topic echo /odom
-ros2 topic echo /line/error
-ros2 topic echo /cmd_vel
+ros2 topic hz /camera_bottom/image_raw
+ros2 topic hz /line/debug_image
+ros2 topic echo /line/status
 ```
+
+Se a câmera tiver frequência, mas `/line/debug_image` não tiver, confira se o parâmetro de imagem do nó de visão está apontando para:
+
+```text
+/camera_bottom/image_raw
+```
+
+### Verificar câmeras V4L2 USB
+
+```bash
+v4l2-ctl --list-devices
+v4l2-ctl --list-formats-ext -d /dev/videoN
+```
+
+Substitua `N` pelo número da webcam USB. Os vários `/dev/videoN` da CSI não devem ser tratados automaticamente como câmeras físicas separadas.
 
 ---
 
-## 10. Acesso remoto ao Raspberry
-
-### 10.1. SSH simples
+## 12. Acesso remoto
 
 ```bash
 ssh bolt@192.168.0.XXX
 ```
 
-Substitua `192.168.0.XXX` pelo IP real do Raspberry.
-
-### 10.2. SSH com encaminhamento gráfico (para abrir janelas no PC)
+Para encaminhamento gráfico:
 
 ```bash
 ssh -Y bolt@192.168.0.XXX
 ```
 
-Depois, no Raspberry:
+Depois:
 
 ```bash
-echo $DISPLAY          # deve mostrar algo como localhost:10.0
+echo $DISPLAY
 ros2 run rqt_image_view rqt_image_view
 ```
 
 ---
 
-## 11. Resumo rápido – comandos "chave"
+## 13. Resumo rápido
 
-- **Ambiente:**
+```bash
+# Ambiente
+source /opt/ros/jazzy/setup.bash
+source ~/ros2_ws/install/setup.bash
 
-  ```bash
-  source /opt/ros/jazzy/setup.bash
-  source ~/ros2_ws/install/setup.bash
-  ```
+# Câmeras
+rpicam-hello --list-cameras
+v4l2-ctl --list-devices
 
-- **Câmera CSI:**
+# Iniciar câmera CSI inferior
+ros2 run camera_ros camera_node --ros-args \
+  -p camera:=0 -p width:=640 -p height:=480 \
+  -r image_raw:=/camera_bottom/image_raw
 
-  ```bash
-  rpicam-hello --list-cameras
-  ros2 run camera_ros camera_node --ros-args \
-    -p camera:=0 \
-    -p width:=640 \
-    -p height:=480
-  ```
+# Iniciar câmera USB superior
+ros2 run camera_ros camera_node --ros-args \
+  -p device:=/dev/videoN -p width:=640 -p height:=480 \
+  -r image_raw:=/camera_top/image_raw
 
-- **Câmera USB:**
+# Serial
+ros2 run robot_bringup motor_serial_node --ros-args \
+  -p port:=/dev/ttyACM0
 
-  ```bash
-  v4l2-ctl --list-devices
-  ros2 run v4l2_camera v4l2_camera_node --ros-args \
-    -p video_device:=/dev/video0 \
-    -p image_size:="[640, 480]" \
-    -p output_encoding:=bgr8
-  ```
+# Servo no centro
+ros2 topic pub --once /servo/command \
+  std_msgs/msg/Float32 "{data: 0.0}"
 
-- **Visualizar imagem:**
+# Ler servo e bateria
+ros2 topic echo /servo/state
+ros2 topic echo /battery/voltage
 
-  ```bash
-  ros2 run rqt_image_view rqt_image_view
-  ```
+# Habilitar robô
+ros2 topic pub --once /controle/enable std_msgs/msg/Bool "{data: true}"
 
-- **Visão da linha:**
-
-  ```bash
-  ros2 run line_vision visao_linha_node
-  ros2 topic echo /line/error
-  ros2 topic echo /line/centroid
-  ```
-
-- **Controle (PID):**
-
-  ```bash
-  ros2 run line_control controle_node
-  ros2 param set /controle_node Kp 0.5
-  ros2 param set /controle_node Kd 0.1
-  ros2 topic echo /cmd_vel
-  ```
-
-- **Motores / serial:**
-
-  ```bash
-  colcon build --packages-select motor_serial --symlink-install
-  ros2 run motor_serial motor_serial_node --ros-args \
-    -p port:=/dev/ttyACM0
-  ```
-
-- **Odometria / encoders / IMU:**
-
-  ```bash
-  ros2 topic echo /wheel_encoder_ticks
-  ros2 topic echo /wheel_states
-  ros2 topic echo /odom
-  ros2 topic echo /imu/data_raw
-  ```
-
-- **Teleop:**
-
-  ```bash
-  ros2 run teleop_twist_keyboard teleop_twist_keyboard
-  ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist \
-    "{linear: {x: 0.2, y: 0.0}, angular: {z: 0.0}}"
-  ```
-
-- **Diagnóstico:**
-
-  ```bash
-  ros2 node list
-  ros2 topic list
-  ros2 topic info /cmd_vel --verbose
-  ```
-
-- **Acesso remoto:**
-
-  ```bash
-  ssh -Y bolt@192.168.0.XXX
-  ```
-
----
-
-Use este arquivo como referência principal para operar e debugar o robô··· no dia a dia.
+# Parar robô
+ros2 topic pub --once /controle/enable std_msgs/msg/Bool "{data: false}"
+```

@@ -7,8 +7,8 @@ Robo omnidirecional com Raspberry Pi 5, duas cameras CSI e ESP32-S3. A Raspberry
 ```text
 camera inferior (/cam_bottom/image_raw)
   -> visao_linha_node -> /line/error, /line/status
-  -> controle_node -> /cmd_vel
-  -> motor_serial_node -> serial TWIST,vx,vy,wz
+  -> controle_node -> /cmd_vel_auto
+  -> motor_serial_node (arbitragem) -> serial TWIST,vx,vy,wz
   -> ESP32 -> cinematica mecanum + PID das rodas
 
 camera superior frontal (/cam_front/image_raw, servo pan esquerda/direita)
@@ -16,6 +16,8 @@ camera superior frontal (/cam_front/image_raw, servo pan esquerda/direita)
   -> controle_node: preview de curva e busca de linha
 
 ESP32 -> ENC, WHEEL, IMU, ODOM, BATT, SERVO_STATE -> motor_serial_node
+
+teleop_twist_keyboard -> /cmd_vel -> motor_serial_node
 ```
 
 A camera inferior e a referencia principal do seguidor. A camera superior e complementar: ela enxerga a pista a frente para antecipar curvas e procurar a linha quando a inferior a perde.
@@ -85,6 +87,24 @@ wz = giro/yaw (rad/s)
 ```
 
 Nao altere a ordem dos campos em apenas um lado. Firmware e ROS devem usar a mesma convencao.
+
+### Arbitragem: automatico ou teleop
+
+O bridge serial separa as fontes de movimento para evitar dois publicadores concorrendo no mesmo topico:
+
+| Fonte | Topico | Quando chega aos motores |
+|---|---|---|
+| Seguidor de linha | `/cmd_vel_auto` | Somente com `/controle/enable=true`. |
+| Teclado/teleop manual | `/cmd_vel` | Somente com `/controle/enable=false`. |
+
+O modo automatico tem prioridade enquanto esta habilitado. Para assumir pelo teclado, primeiro desabilite o controle automatico:
+
+```bash
+ros2 topic pub --once /controle/enable std_msgs/msg/Bool "{data: false}"
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```
+
+Ao desabilitar, o bridge descarta o ultimo Twist automatico e aceita o teleop imediatamente. Para voltar ao seguidor, solte/pare o teleop e habilite o controle novamente. Esse comportamento evita que um comando manual e o PID sejam enviados alternadamente aos motores.
 
 ## Geometria do chassi
 

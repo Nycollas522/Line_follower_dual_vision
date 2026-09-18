@@ -1,0 +1,26 @@
+[Unit]
+Description=Pilha ROS 2 do seguidor de linha
+# network-online porque o no serial publica o IP no OLED, e sem rede ele
+# mostraria "sem rede" por todo o boot.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bolt
+Group=bolt
+# dialout para a serial do ESP32, video para as cameras.
+SupplementaryGroups=dialout video
+ExecStart=/home/bolt/ros2_ws/scripts/iniciar_robo.sh
+Restart=on-failure
+RestartSec=10
+# O launch e um supervisor: matar so ele deixaria cameras e nos orfaos
+# segurando o pipeline do libcamera -- erro que ja custou tres
+# instancias empilhadas nesta bancada.
+KillMode=control-group
+TimeoutStopSec=20
+StandardOutput=append:/home/bolt/ros2_ws/logs/boot.log
+StandardError=append:/home/bolt/ros2_ws/logs/boot.log
+
+[Install]
+WantedBy=multi-user.target

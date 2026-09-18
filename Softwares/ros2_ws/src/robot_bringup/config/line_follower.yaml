@@ -1,0 +1,777 @@
+# =====================================================================
+#  Seguidor de linha -- parametros
+# =====================================================================
+#
+#  Ordem de leitura recomendada:
+#    1. MEDIDAS  -> medir uma vez com regua, nunca mais mexer
+#    2. AJUSTE   -> os 6 parametros que resolvem 90% dos problemas
+#    3. o resto  -> so mexer com um sintoma na mao e a tabela de
+#                   diagnostico do relatorio aberta
+#
+#  Nada aqui esta em pixels: os erros sao em metros e radianos. Isso
+#  significa que mudar a resolucao da camera nao invalida os ganhos.
+#
+# =====================================================================
+
+# ---------------------------------------------------------------------
+#  CAMERA INFERIOR -- percepcao primaria do loop rapido
+# ---------------------------------------------------------------------
+line_perception_bottom:
+  ros__parameters:
+    image_topic: /cam_bottom/image_raw
+    output_namespace: /line
+    label: bottom
+
+    # A CAMERA ESTA MONTADA DE CABECA PARA BAIXO. Verificado na bancada
+    # com o robo sobre a pista: sem isso, "perto" e "longe" trocam de
+    # lugar (o lookahead olha para tras) e o sinal do erro inverte.
+    rotate_180: true
+
+    # === MEDIDAS =====================================================
+    # MONTAGEM NOVA (10/09/2026): a camera aponta RETO PARA BAIXO, na
+    # frente do robo, sem avanco. Isso muda tudo nesta secao.
+    #
+    # A prova de que a vista e ortografica (sem perspectiva) esta na
+    # propria imagem: a fita mede a MESMA largura em todas as linhas --
+    # 0.681 / 0.684 / 0.664 / 0.664 / 0.667 do quadro, de cima a baixo.
+    # Com a montagem antiga, inclinada, a largura crescia com a
+    # distancia. Por isso width_near_m == width_far_m agora.
+    #
+    # RECALIBRADO 10/09/2026 depois de levantar a camera para ~87mm.
+    # A fita de 20mm ocupa 23.0% dos 640px, logo o quadro cobre
+    # 20/0.230 = 87.1mm de chao (escala 7.4 px/mm). Como a largura do
+    # campo escala 1:1 com a altura nesta lente (~53 graus), isso
+    # confirma a altura medida com regua.
+    #
+    # Continua ortografica: o ajuste linear da largura ao longo da
+    # profundidade da 147.0px perto contra 146.1px longe -- 0.6%, menor
+    # que o residuo de 11.6px. Por isso width_near == width_far.
+    #
+    # A ROI cobre 399 linhas -> 54.5mm de profundidade (era 22.5mm).
+    #
+    # GANHO DE MARGEM, que era o problema critico da montagem a 30mm:
+    #   antes: 6.6mm de um lado, 3.5mm do outro
+    #   agora: 33.6mm dos DOIS lados
+    # O detector separa a linha do piso pelos flancos escuros; com 3.5mm
+    # qualquer desvio real apagava um flanco e a deteccao caia de uma vez.
+    #
+    # ABSOLUTO, agora MEDIDO COM REGUA (nao mais estimativa):
+    #   entre-eixos 176mm -> eixo dianteiro a 88mm do centro cinematico
+    #   camera a 44mm a frente do eixo dianteiro
+    #   -> camera a 132mm do centro, olhando reto para baixo
+    # A imagem inteira cobre 87.1*480/640 = 65.3mm de profundidade
+    # centrados nesse ponto (99.3 a 164.7mm), e o corte do robo joga a
+    # borda proxima 11.0mm para frente.
+    #
+    # CONFERENCIA CRUZADA: o intervalo que sai dessa conta e 54.3mm,
+    # contra 54.5mm medidos direto na imagem -- 0.4% de diferenca por
+    # dois caminhos independentes.
+    #
+    # Isto importa: vai em lookahead_distance, que o controlador usa
+    # para descontar o amortecimento que a montagem ja oferece (ver
+    # _ganho_de_heading). Com ~115mm de lookahead, k_lateral*L = 1.03 --
+    # dois tercos do k_heading nominal vem de graca da montagem.
+    depth_near_m: 0.1104
+    depth_far_m: 0.1562
+    #
+    # ELES ASSUMEM UMA FITA DE 2.0 cm. Meca a sua fita:
+    #   se ela tiver L cm, multiplique os width_* por (L / 2.0).
+    # Depois de ajustar, confira em /line/detection que line_width bate
+    # com a largura real -- e o proprio teste da calibracao.
+    width_near_m: 0.0839
+    width_far_m: 0.0839
+    # Positivo se a camera esta montada a direita do eixo do robo.
+    # E aqui que se corrige o robo andar sempre "colado" num dos lados.
+    camera_x_offset_m: 0.0
+    # Largura real da fita da pista.
+    line_width_m: 0.020
+
+    # === Regiao analisada ============================================
+    # 0.0 = quadro inteiro. Com a camera apontada para baixo TODO o
+    # quadro e chao -- nao ha mais parede/bancada no topo para cortar,
+    # que era a razao do 0.12 da montagem antiga. E o intervalo de
+    # profundidade ja e curto (22.5mm): cortar reduziria ainda mais a
+    # base do ajuste de heading.
+    roi_top: 0.0
+    # O PROPRIO ROBO aparece na borda mais proxima. Depois do
+    # rotate_180 ele fica na BASE, entao o corte e por baixo.
+    #
+    # RECALIBRADO 10/09/2026 (2a vez): a camera se deslocou ~7mm para
+    # tras quando o suporte da superior foi mexido, e o robo passou a
+    # ocupar 131 linhas em vez de 81. Com roi_bottom=0.831 sobravam ~50
+    # linhas de chassi DENTRO da ROI, e o preto do chassi puxava o
+    # limiar de Otsu: as bandas cairam de 5/5 para 3/5 e a confianca de
+    # 0.82 para 0.29. 1 - 131/480 = 0.727; usamos 0.72 com folga.
+    #
+    # NOTA UTIL: depth_near_m NAO mudou (0.1104) porque a borda da ROI
+    # e ancorada no PARA-CHOQUE, que e ponto fixo no chao -- so a borda
+    # distante acompanha a camera. Se o suporte se mexer de novo, o
+    # sintoma sera este: bandas caindo com contraste ainda alto.
+    roi_bottom: 0.72
+    # Largura de trabalho apos o downscale. Se o FPS cair, baixe para
+    # 128; se a linha ficar fina demais para ser detectada, suba p/ 200.
+    work_width: 160
+    # 5 bandas em 10 cm = uma amostra a cada 2 cm.
+    bands: 5
+
+    # === Robustez ====================================================
+    # Separacao minima linha/fundo. Suba se sombras estao virando linha;
+    # baixe se a linha some com pouca luz.
+    min_contrast: 25.0
+    # Guarda contra quadro uniforme (o Otsu sempre parte o histograma,
+    # ate numa parede lisa). NAO e o mecanismo que separa linha de piso:
+    # o piso desta pista tambem e claro, entao quem discrimina e o teste
+    # de flanco escuro abaixo.
+    max_white_fraction: 0.80
+    # A pista real e linha branca com fita PRETA dos dois lados sobre
+    # piso claro. Exigir que o candidato seja mais claro que os dois
+    # vizinhos imediatos e o que impede um pedaco de piso de ganhar.
+    flank_weight: 0.7
+    # Quanto a posicao do frame anterior pesa na escolha do candidato.
+    # E o que faz um reflexo grande perder para a linha verdadeira.
+    track_weight: 0.6
+    track_sigma: 0.25
+    track_memory: 6
+    # 0.45 (era 0.75). O termo de largura e uma gaussiana em log, entao
+    # 0.75 deixava uma banda 73% larga perder so 23% de peso. MEDIDO em
+    # 10/09/2026: uma banda com brilho de piso subindo em RAMPA ate a
+    # fita (sem flanco escuro) mediu 34.6mm no lugar de 20mm, entrou com
+    # score 0.662 e contaminou o heading em 0.67 graus. Agora que a
+    # calibracao acerta a largura real (20.1mm medidos contra 20), da
+    # para exigir mais: com 0.45 essa mesma banda cai para ~0.48 de peso.
+    # A inclinacao legitima (1/cos) ja e compensada em ideal_width_norm,
+    # entao apertar aqui nao penaliza curva de verdade.
+    line_width_tolerance: 0.45
+    min_band_score: 0.25
+    band_height: 0.10
+    open_kernel: 3
+    # ACHATAMENTO DE FUNDO -- razao sobre a largura esperada da linha.
+    #
+    # RELATADO E MEDIDO em 10/09/2026: esta camera pega um reflexo de luz
+    # e o piso ganha um GRADIENTE. No quadro capturado a mediana do piso
+    # cai de 151 (longe) para 106 (perto) -- 45 contagens -- mais 19 de
+    # inclinacao lateral, contra so 78 de contraste entre linha e piso.
+    # O Otsu que cada banda pediria ia de 168 (longe) a 131 (perto); o
+    # global saiu 155. Na banda distante o piso ao lado da fita (151)
+    # encostava no limiar e se FUNDIA com ela: a banda media 39.9mm em
+    # vez de 19.9mm, o termo de largura a matava, e a deteccao vivia em
+    # 4/5 bandas. Era esse o gargalo -- na ultima corrida "1 - confianca"
+    # era o MAIOR termo do freio (0.54 medio, p90 0.94).
+    #
+    # MEDIDO no mesmo quadro, com e sem: 4/5 -> 5/5 bandas, confianca
+    # 0.757 -> 0.869, heading -0.44 -> 0.00 graus (a banda inchada
+    # torcia o ajuste), largura e erro lateral INALTERADOS. Custo de
+    # CPU +0.26 ms sobre 6.71 (4%), medido intercalado.
+    #
+    # 3.0 e a folga sobre a linha inclinada: a 60 graus a varredura
+    # horizontal ve o DOBRO da largura, e a janela precisa superar isso
+    # ou o top-hat come a linha na curva.
+    background_kernel_ratio: 3.0
+    # DESLIGADA na montagem apontada para baixo. Testada DUAS vezes,
+    # em alturas diferentes, sempre pelo mesmo cruzamento: comparar o
+    # que o detector publica com um ajuste quadratico feito direto na
+    # imagem da MESMA cena.
+    #
+    #   camera a 30mm (base 22.5mm): detector +10.10 1/m, imagem -15.61
+    #   camera a 87mm (base 54.5mm): detector  +1.15 1/m, imagem  -0.67
+    #
+    # Levantar a camera reduziu o erro ~9x, mas os SINAIS continuam
+    # opostos, e o ajuste quadratico explica 0% do desvio que sobra de
+    # uma reta (0.883 contra 0.886 mm) -- ou seja, a linha e reta e as
+    # duas leituras sao erro em torno de zero.
+    #
+    # O que impede de religar nao e o ruido, e o VIES de ~1 1/m: ruido o
+    # filtro (curvature_filter_tau) tira, vies nao. Um vies de 1 1/m da
+    # 0.9*1.0*0.15 = 0.135 rad/s de giro espurio permanente, que o
+    # feedback lateral equilibra com 0.135/9.0 = 15mm de desvio -- o
+    # mesmo erro de regime que k_feedforward existe para eliminar.
+    #
+    # A antecipacao agora vem da MONTAGEM: a camera olha ~99mm a frente
+    # do centro (ver lookahead_distance), e o controlador desconta esse
+    # amortecimento sozinho em _ganho_de_heading.
+    curvature_enabled: false
+    min_bands_for_curvature: 4
+    max_curvature: 12.0
+    max_heading_for_curvature: 0.30
+    publish_compat_topics: true
+
+# ---------------------------------------------------------------------
+#  CAMERA SUPERIOR -- preview, nunca referencia de direcao
+# ---------------------------------------------------------------------
+line_perception_front:
+  ros__parameters:
+    image_topic: /cam_front/image_raw
+    output_namespace: /line_front
+    label: front
+
+    # Esta camera TAMBEM esta de cabeca para baixo.
+    rotate_180: true
+
+    # Ja conhecidas: comeca a ver 20.5 cm a frente, alcanca 34 cm.
+    depth_near_m: 0.205
+    depth_far_m: 0.545
+    # Conferido na bancada: com estes valores a largura medida deu
+    # 18.3 mm para uma fita de 20 mm. Mesma regra de escala da camera
+    # inferior se a sua fita nao for de 2.0 cm.
+    width_near_m: 0.220
+    width_far_m: 0.420
+    camera_x_offset_m: 0.0
+    line_width_m: 0.020
+
+    # Depois de desinverter, a pista ocupa a metade INFERIOR do quadro;
+    # acima disso e parede/bancada. Medido: com roi_top 0.45 a deteccao
+    # deu confianca 0.99 e 4/4 bandas.
+    roi_top: 0.45
+    roi_bottom: 1.00
+    work_width: 160
+    # 5 bandas dao margem: medido na pista, com 4 a banda mais distante
+    # falhava com frequencia e a curvatura (o preview de curva) nunca era
+    # calculada, porque exige min_bands_for_curvature bandas validas.
+    bands: 5
+
+    # A linha vista de longe e fina e de baixo contraste: os guardas
+    # precisam ser mais tolerantes que os da camera de baixo. O piso
+    # claro ocupa quase todo o quadro nesta camera, entao a fracao de
+    # branco precisa ser alta -- quem discrimina e o flanco escuro.
+    min_contrast: 18.0
+    max_white_fraction: 0.85
+    flank_weight: 0.7
+    track_weight: 0.5
+    track_sigma: 0.30
+    track_memory: 4
+    line_width_tolerance: 0.90
+    min_band_score: 0.20
+    band_height: 0.12
+    open_kernel: 3
+    # DESLIGADO nesta camera, ao contrario da inferior. MEDIDO no mesmo
+    # instante: aqui NAO ha gradiente em profundidade -- o Otsu local de
+    # cada banda deu 169/173/172/170/171 contra 171 do global, ou seja,
+    # um limiar unico ja serve o quadro inteiro. Ha uma inclinacao
+    # lateral de 18 contagens, mas ela e uniforme na profundidade e nao
+    # esta derrubando banda nenhuma (5/5, confianca 0.923).
+    #
+    # E ligar CUSTA: esta camera tem perspectiva, entao a linha vai de
+    # 14.5px (perto) a 7.6px (longe) e uma janela unica e sempre um
+    # compromisso -- medido, a largura caiu de 19.3 para 18.0mm e a
+    # confianca de 0.923 para 0.909.
+    #
+    # RECONSIDERAR se voltar a sombra diagonal que ja prendeu a confianca
+    # desta camera em 0.49-0.52 com contraste 74: esse sintoma (contraste
+    # alto e confianca baixa) e exatamente o que o achatamento resolve.
+    background_kernel_ratio: 0.0
+    min_bands_for_curvature: 4
+    max_curvature: 8.0
+    max_heading_for_curvature: 0.30
+    publish_compat_topics: true
+
+# ---------------------------------------------------------------------
+#  CONTROLADOR + SUPERVISOR
+# ---------------------------------------------------------------------
+line_follower_node:
+  ros__parameters:
+    control_rate: 50.0
+
+    # === AJUSTE: comece por estes seis ===============================
+    # 1. Velocidade em reta com linha limpa. Suba de 0.02 em 0.02.
+    v_max: 0.22
+    # 2. Velocidade no pior caso ainda seguindo (curva fechada, pouca
+    #    confianca). Se o robo trava em curva, este esta baixo demais.
+    v_min: 0.07
+    # 3. Ganho principal: rad/s por metro de erro lateral.
+    #    Oscila em reta -> baixe. Corta curva por dentro -> suba.
+    k_lateral: 9.0
+    # 4. Ganho de orientacao. E ele que faz o robo entrar alinhado na
+    #    curva em vez de so reagir ao deslocamento.
+    k_heading: 1.6
+    # 5. Erro lateral que ja justifica andar em v_min. Baixe para o
+    #    robo ficar mais cauteloso, suba para ele manter velocidade.
+    ref_lateral: 0.045
+    # 6. Curvatura que ja justifica v_min. E o freio de curva.
+    ref_curvature: 6.0
+    # 7. FREIO DE QUEBRA. Residuo do ajuste de reta que ja justifica
+    #    v_min. As quebras desta pista (medidas: picos de heading de
+    #    +46.7, -25.2 e +30.0 graus) nao sao curvas -- sao duas retas
+    #    anguladas, e o robo tem raio minimo de 16.5cm, entao o desvio
+    #    lateral R*(1/cos(D/2)-1) e OBRIGATORIO. O que da para melhorar
+    #    e o ATRASO: comecar a frear antes.
+    #
+    #    Por que nao usar so o heading: ele sobe em dois casos que pedem
+    #    coisas opostas -- quebra chegando (frear certo) e robo apenas
+    #    TORTO numa reta (frear so atrasa a recuperacao). O residuo e
+    #    ~zero no segundo caso, entao separa os dois.
+    #
+    #    CALIBRADO NA PISTA (10/09/2026), nao pela formula:
+    #      reta:   0.695 mm  (desvio 0.033)
+    #      quebra: 1.974 mm  (desvio 0.033)  -> 2.8x
+    #    2.0mm foi escolhido para o termo ficar INERTE na reta e cheio na
+    #    quebra: na reta ele da 0.35, abaixo do termo (1-confianca) que
+    #    ja vale ~0.58 ali -- e como os termos entram num max(), ele nao
+    #    freia a toa. Na quebra da 0.99.
+    #    Para recalibrar: ponha o robo com o vertice SOB a camera (uns
+    #    4-5cm a frente das rodas dianteiras) e leia fit_residual.
+    #    0.0 desliga o freio de quebra.
+    ref_residual: 0.0020
+
+    # === Direcao (fino) ==============================================
+    k_damping: 0.35
+    #
+    # k_feedforward: 0.90, restaurado perto do valor FISICO depois de
+    # filtrar a curvatura (curvature_filter_tau abaixo) -- que era
+    # exatamente a condicao que a versao anterior deste comentario
+    # pedia para poder subir o ganho de novo.
+    #
+    # POR QUE SUBIR: para percorrer um arco de curvatura kappa a
+    # velocidade v, a cinematica exige omega = v*kappa. Com k_ff < 1 o
+    # feedback tem que gerar o que falta, e um controlador sem integral
+    # so gera sinal MANTENDO ERRO:
+    #     e_regime = (1 - k_ff) * v * kappa / k_lateral
+    # Com k_ff=0.15, v=0.15 e kappa=1.06 (curva de raio 94cm medida na
+    # pista) isso da 15mm de offset permanente; numa curva de raio 33cm
+    # da 42mm. E o sintoma de "segue a linha mas fica paralelo a ela,
+    # nao em cima". Com k_ff=0.90 o offset cai para ~1.5mm e ~4mm.
+    #
+    # E NAO E SO ESTETICA -- ERA O QUE FAZIA PERDER A LINHA NA CURVA:
+    # a camera inferior ve apenas 3.8cm de largura na banda mais
+    # proxima, ou seja +-19mm. Comparando o offset de regime com esse
+    # limite fisico (v=0.15):
+    #     curva        k_ff=0.15   k_ff=0.90   limite da camera
+    #     raio 94cm      15.1mm       1.8mm      19mm  ok / ok
+    #     raio 50cm      28.3mm       3.3mm      19mm  PERDIA / ok
+    #     raio 33cm      42.9mm       5.1mm      19mm  PERDIA / ok
+    #     raio 25cm      56.7mm       6.7mm      19mm  PERDIA / ok
+    # Com 0.15, qualquer curva mais fechada que ~70cm de raio jogava a
+    # linha para fora do campo de visao -- o robo nao estava mal
+    # ajustado, estava geometricamente condenado a perder.
+    #
+    # HISTORICO: 0.85 sem filtro era instavel porque a curvatura crua
+    # salta (chegou a +4.36 1/m numa reta). O problema era o ruido, nao
+    # o conceito -- por isso a dupla filtro + ganho fisico.
+    k_feedforward: 0.90
+    # Constante de tempo do filtro da curvatura usada no feedforward.
+    # Subir se ainda houver tremor em curva; descer se a resposta a
+    # entrada de curva ficar lenta demais.
+    curvature_filter_tau: 0.15
+    # ATRASO DE TRANSPORTE DO FEEDFORWARD. A curvatura e ajustada numa
+    # janela A FRENTE (3.5 a 13.5 cm, centro ~8.5 cm), mas omega = v*kappa
+    # vale para a curvatura SOB o robo. MEDIDO NA PISTA (09/09/2026): em
+    # t=1.00s a curvatura ja marcava +0.45 e o wz ja virava a direita,
+    # mas o heading da linha ainda era +0.6 graus -- o robo estava na
+    # reta. Ele saiu por dentro (lat chegou a -34mm) e so entao o
+    # feedback puxou a esquerda: na pista isso se ve como "virou pra
+    # esquerda numa curva pra direita". Usar a leitura de (distancia /
+    # velocidade) segundos atras alinha o feedforward com o robo.
+    # 0.0 desliga o atraso.
+    curvature_eval_distance_m: 0.085
+    curvature_delay_max_s: 1.5
+    # AGENDAMENTO DO GANHO DE ORIENTACAO. Com k_heading fixo o
+    # amortecimento cai quando o robo acelera -- justamente na reta:
+    #   v=0.07 -> zeta 1.02   v=0.15 -> zeta 0.71   v=0.22 -> zeta 0.60
+    # Agendando k_heading = 2*zeta*sqrt(v*k_lateral) - k_damping*v o
+    # amortecimento fica constante. Nunca desce abaixo de k_heading,
+    # entao baixa velocidade fica exatamente como esta hoje.
+    heading_gain_scheduling: true
+    target_damping: 1.0
+    # PISO do ganho agendado. Sem ele o agendamento leva k_heading a ZERO
+    # em baixa velocidade, e como o erro e medido a ~115mm A FRENTE, o
+    # controlador anula o erro GIRANDO em vez de endireitar: estaciona em
+    # theta = k_lat*e/(k_lat*L + k_head). MEDIDO NA PISTA (10/09/2026):
+    # 10 graus torto com 20mm de offset, e o robo passou 50% do teste
+    # praticamente parado (vx=0.003) -- "andou quase que angulado".
+    # 1.0 limita isso a ~5 graus e so encosta abaixo de v ~ 0.13 m/s.
+    heading_gain_min: 1.0
+    derivative_tau: 0.08
+    # DE VOLTA a 0.55 (= 31.5 graus). Eu havia baixado para 0.30 para
+    # antecipar curva, e depois acrescentei o freio de QUEBRA pelo
+    # residuo -- que e o sinal especifico para isso -- mas esqueci de
+    # devolver a folga aqui. Ficaram os dois freios, e o generico
+    # dominava.
+    # MEDIDO NA PISTA (10/09/2026, bateria boa): com 0.30 o termo de
+    # heading media 0.93 (1.0 = v_min), contra 0.34 do lateral, 0.55 da
+    # confianca e 0.00 do residuo. Resultado: 73% do tempo comandando
+    # abaixo de 0.10 m/s, onde os motores entregam so 45-69% do pedido.
+    # O heading fica como freio de DESALINHAMENTO severo; quem antecipa
+    # quebra e ref_residual.
+    ref_heading: 0.55
+    wz_max: 2.5
+    wz_accel: 6.0
+
+    # === Limite cinematico do chassi =================================
+    # Vem do firmware (Config::K = halfL + halfW = 0.088 + 0.077) e da
+    # velocidade maxima de roda. NAO mexer sem trocar o chassi.
+    wheel_base_k: 0.165
+    wheel_max_mps: 0.70
+    # 1.0 permitiria a roda interna parar; 0.8 deixa margem para o robo
+    # nunca inverter uma roda, que e o que faz ele piruetar em vez de
+    # descrever a curva.
+    # 1.0 (era 0.80). MEDIDO NA PISTA (10/09/2026): nos dois momentos em
+    # que o robo perdeu a curva, o wz estava SATURADO neste limite --
+    # nao era falta de ganho, era o teto.
+    #
+    # O teto de giro sem inverter roda e arc_ratio*v/wheel_base_k, logo a
+    # curvatura MAXIMA do caminho e arc_ratio/wheel_base_k, CONSTANTE e
+    # independente da velocidade:
+    #     0.80 -> 4.85 1/m (raio 20.6cm)
+    #     1.00 -> 6.06 1/m (raio 16.5cm)
+    # Pelo heading medido (kappa = theta/L_head), a curva desta pista
+    # exige ate 4.6 1/m. Com 0.80 sobravam 5% de margem; com 1.00 sobram
+    # 32%.
+    #
+    # ATENCAO -- por que NAO passar de 1.0: em 1.0 a roda interna fica
+    # PARADA. Acima disso ela inverteria, e o robo pirueta em vez de
+    # descrever a curva. Este e o limite util.
+    #
+    # E DESACELERAR NAO SUBSTITUI ISTO: o teto cai junto com v, na mesma
+    # proporcao, entao o caminho possivel e o mesmo. Frear ajuda a
+    # corrigir heading em menos distancia, mas nao aperta a curva.
+    arc_ratio: 1.00
+
+    # === Rampas ======================================================
+    accel: 0.35
+    decel: 0.60
+
+    # === Perda de linha e recuperacao ================================
+    # Confianca acima disso: seguimento normal.
+    # 0.30 (era 0.45). MEDIDO NA PISTA com a montagem apontada para
+    # baixo: o robo passou 50% do teste com confianca abaixo do corte e
+    # vx=0.003 -- praticamente parado. E parado ele NAO consegue corrigir
+    # offset lateral, porque a dinamica e e_ponto = v*theta: com v=0 so
+    # sobra girar, e com o erro medido a 115mm A FRENTE ele gira ate por
+    # a mira na linha e fica TORTO. Foi o "andou quase que angulado".
+    #
+    # A montagem nova entrega menos bandas em curva por geometria (as
+    # distantes saem do quadro quando o heading cresce), entao exigir
+    # 0.45 mantinha o robo fora de FOLLOWING quase sempre. Baixar o
+    # limiar quebra o circulo: ele continua andando, e andando consegue
+    # se recentrar. confidence_min (0.15) segue barrando frame ruim.
+    confidence_ok: 0.30
+    # Abaixo disso a deteccao e ignorada por completo.
+    confidence_min: 0.15
+    # Idade maxima de uma deteccao. Cobre camera travada, nao so
+    # "nao detectou": se a camera parar de publicar, isso dispara.
+    #
+    # MEDIDO NESTE ROBO (795 ciclos, camera a 27 fps):
+    #   idade media 66 ms, p95 112 ms, MAXIMO 289 ms.
+    # O pipeline libcamera/camera_ros tem engasgos de ate ~230 ms entre
+    # frames. Com 0.20 s isso gerava COASTING espurio em 0.6% dos ciclos.
+    # 0.35 s cobre o jitter medido com folga e ainda detecta uma camera
+    # realmente travada em menos de meio segundo.
+    vision_timeout: 0.35
+    # Perda curta (sombra, um frame ruim): mantem a curva e desacelera.
+    # Pior caso de avanco as cegas = vision_timeout + coast_time, com a
+    # velocidade ja em rampa de descida: da menos de 6 cm, contra os
+    # 10 cm que a camera inferior enxerga a frente.
+    coast_time: 0.20
+    coast_speed_ratio: 0.5
+    # Perda confirmada: para de avancar e procura por ate 3 s.
+    recovery_time: 3.0
+    recovery_wz: 0.9
+    # Projeta a linha para decidir o LADO da busca, em vez de usar o
+    # erro lateral cru: em curva as bandas morrem por heading enquanto o
+    # lateral ainda e +3 a +5mm (ruido), e o robo girava para o lado
+    # errado. Ver o comentario em line_controller onde _last_side muda.
+    recovery_projection_m: 0.05
+    # Deteccoes seguidas exigidas para voltar a seguir depois de perder.
+    relock_frames: 3
+
+    # === Alinhamento parado na partida ===============================
+    # MEDIDO NA PISTA (09/09/2026): largado a 25 graus da linha, o robo
+    # NAO se alinha andando para frente. O limite e geometrico: o teto de
+    # giro sem inverter roda e arc_ratio*v/wheel_base_k, logo a curvatura
+    # maxima do caminho e arc_ratio/wheel_base_k = 4.85 1/m -- raio minimo
+    # de 20.6 cm, CONSTANTE, independente da velocidade (desacelerar nao
+    # aperta a curva). Girar 25 graus nesse raio custa R*(1-cos25) = 19mm
+    # de desvio lateral, que somado ao offset inicial passa dos +/-19mm da
+    # banda mais proxima. Na medicao ele atravessou a linha e foi a
+    # -49.8mm, com a confianca caindo de 0.88 para 0.03.
+    # Girar PARADO nao tem desvio lateral. So dispara na PARTIDA (saindo
+    # de IDLE): em curva o heading tambem passa de 20 graus, e parar para
+    # girar no meio da curva seria pior que o problema.
+    align_on_start: true
+    align_heading_deg: 18.0
+    align_exit_deg: 7.0
+    # 0.9 e nao 0.6: com 0.6 a roda anda a wheel_base_k*wz = 0.099 m/s,
+    # abaixo do atrito estatico -- MEDIDO: o robo ficou 1.2s parado
+    # comandando giro antes de destravar. 0.9 e o mesmo do recovery_wz.
+    align_wz: 0.9
+    align_timeout: 4.0
+    # O giro NAO depende de visao continua. MEDIDO: girando no lugar, 12
+    # graus moveram o erro lateral em 24.8mm, ou seja o ponto observado
+    # esta a ~125mm do centro de rotacao (a camera fica a frente dele).
+    # Com a banda mais proxima cobrindo +/-19mm, so da para confiar na
+    # visao ate ~9 graus. Acima disso o alvo e travado na entrada e o
+    # progresso e estimado integrando o wz comandado; a visao reengata
+    # depois e corrige o resto.
+    align_closed_loop_deg: 9.0
+    align_overshoot_guard: 1.25
+
+    # === Camera superior =============================================
+    # A superior tem TRES papeis, com riscos bem diferentes, e agora
+    # cada um tem a sua chave. Antes viviam todos atras de use_preview,
+    # entao desligar a DIRECAO (o papel nocivo) matava junto a
+    # RECUPERACAO (o papel mais util e mais seguro) sem avisar -- foi
+    # exatamente o que aconteceu no teste de 09/09/2026.
+    #
+    # MEDIDO NA PISTA (09/09/2026), com o robo andando:
+    #   superior realimentando o giro do corpo  -> 31-33% do tempo sem
+    #       linha, vies de curva de -16mm ate -5mm
+    #   cabeca rastreando, mas SEM realimentar  -> 0.0% sem linha em
+    #       20s inteiros, vies de curva +0.46mm
+    # Ou seja: a cabeca se MOVER nao e o problema -- o problema e
+    # injetar o angulo/leitura dela de volta no giro. Causa provavel: o
+    # alcance util da superior e curto (20.5-35.8cm com roi_top=0.45) e
+    # esticar isso para prever curvatura amplifica ruido em giro real.
+    #
+    # Chave-mestra: false desliga os tres papeis de uma vez.
+    use_preview: true
+    # DIRECAO: entra no laco fechado de wz, ruido vira giro. Foi o que
+    # a medicao acima reprovou. Fica desligado ate haver evidencia.
+    preview_steering_enabled: false
+    # VELOCIDADE: so freia antes da curva. Errar custa tempo, nao
+    # rastreio -- nao realimenta a direcao.
+    preview_speed_enabled: true
+    # RECUPERACAO: escolhe o LADO do giro depois que a linha ja foi
+    # perdida, nunca a magnitude, e so age em RECOVERING. E o papel de
+    # menor risco e o que mais justifica ter a segunda camera.
+    preview_recovery_enabled: true
+    preview_timeout: 0.40
+    preview_confidence_min: 0.40
+    # Fracao da curvatura antecipada aplicada como feedforward. So
+    # funciona para curva suave -- ver preview_heading_gain para quinas.
+    preview_ff_gain: 0.35
+    # Ganho do heading do preview (rad/s por rad), mesma forma de
+    # k_heading. MEDIDO NO ROBO REAL: a quina do circuito (reta -> reta
+    # anguladas ~30 graus, sem curva entre elas) faz o ajuste de
+    # curvatura explodir (chegou a +11 1/m), mas o heading_error da
+    # camera superior mede o angulo da quina direto e sem essa
+    # instabilidade -- e o sinal certo para antecipar esse tipo de
+    # geometria, curvatura e para curva suave mesmo.
+    preview_heading_gain: 0.40
+    # Teto do preview (curvatura + heading somados), como fracao de
+    # wz_max. Garante que a camera de cima NUNCA domina a de baixo,
+    # mesmo se seus parametros estiverem muito errados.
+    preview_ff_max_ratio: 0.30
+    # Com o pan alem disso, o preview deixa de valer como direcao.
+    preview_center_tol_deg: 8.0
+    preview_speed_gain: 1.0
+
+    # REALIMENTACAO do angulo da cabeca no giro do corpo. Reprovada na
+    # medicao de 09/09/2026 (ver o comentario grande no inicio desta
+    # secao). Agora esta chave controla SO a realimentacao: quem manda
+    # a cabeca se mexer e head_tracking_enabled, logo abaixo. Antes as
+    # duas coisas estavam juntas, e desligar a realimentacao congelava
+    # a cabeca no centro sem querer.
+    use_servo_bearing: false
+    servo_bearing_gain: 1.2
+    # A cabeca RASTREIA a linha (TRACK + antecipacao geometrica). Vale
+    # manter ligada mesmo com a realimentacao desligada: a cabeca
+    # virada enquadra a curva na superior, alimentando os papeis de
+    # velocidade e recuperacao. Foi assim que mediu 0.0% de perda.
+    head_tracking_enabled: true
+    # Distancia media observada pela camera superior (20.5cm a 54.5cm
+    # -> centro em 37.5cm). Usada para prever o angulo da cabeca.
+    preview_lookahead_m: 0.375
+    # ANTECIPACAO GEOMETRICA DA CABECA: num arco de curvatura kappa, o
+    # ponto a D metros a frente aparece num bearing de atan(D*kappa/2).
+    # Para uma curva de raio 33cm e D=0.375m isso da 29 graus -- que e
+    # o quanto o servo estava chegando ATRASADO na curva, porque so
+    # reagia ao erro ja visivel.
+    #
+    # POR QUE A CABECA PRECISA GIRAR (e nao basta camera fixa): o
+    # meio-FOV projetado da camera superior e de apenas 16.4 graus.
+    #     raio 100cm -> bearing 10.6 deg  cabe no FOV fixo
+    #     raio  50cm -> bearing 20.6 deg  NAO cabe
+    #     raio  33cm -> bearing 29.6 deg  NAO cabe
+    #     raio  25cm -> bearing 36.9 deg  NAO cabe
+    # Em qualquer curva mais fechada que ~1m de raio a linha sai do
+    # quadro da camera superior se a cabeca ficar parada.
+    #
+    # 0.8 (valor anterior) saturava a cabeca no talo de max_angle_deg
+    # com curvaturas so moderadas: atan() cresce muito rapido quando o
+    # argumento passa de ~1. MEDIDO NA PISTA (corrida real, robo
+    # andando): curvatura filtrada de 7.9 1/m (raio 12.7cm) dava
+    # bearing previsto de 44.7 graus (0.8*atan(...)) e o servo real
+    # bateu em 42.9 -- confirmado reproduzindo a formula sobre o log da
+    # corrida. Como isso satura com qualquer leitura acima de ~8 1/m, a
+    # cabeca virava forte ate em trechos que pareciam retos. 0.5 corta
+    # o mesmo caso para ~28 graus -- ainda antecipa a curva real, sem
+    # colar no batente por ruido de leitura.
+    # 1.0 (era 0.5). A mira agora sai da GEOMETRIA -- projeta a linha
+    # ate preview_lookahead_m usando o heading medido da inferior e tira
+    # o angulo dali (ver _mira_da_cabeca). O bearing JA E o angulo certo
+    # para apontar, entao o ganho natural e 1.0; o 0.5 compensava o termo
+    # antigo, baseado em curvatura, que era so uma estimativa grosseira.
+    #
+    # MEDIDO: com a inferior parada sobre uma quebra lendo th=+24deg,
+    # ganho 1.0 da 16.2 graus de mira. A superior e 94.9% valida com a
+    # cabeca entre +8 e +20 graus contra 85.0% centrada, entao 16.2 cai
+    # no melhor da faixa; com 0.5 daria 8.1, na borda dela.
+    #
+    # Isto e feedforward: o loop visual da superior corrige o residuo por
+    # cima. Com o ganho certo o feedforward faz o trabalho e a parte
+    # visual fica perto de zero -- que e o ponto, porque quando a
+    # superior perde a linha so o feedforward sobra.
+    servo_lookahead_gain: 1.0
+
+    scan_in_recovery: true
+    # Continua varrendo a cabeca depois que RECOVERING desistiu e caiu em
+    # SAFE_STOP. O corpo ja esta parado (vx e wz zerados), entao varrer e
+    # ganho puro de percepcao, sem risco de atuacao. MEDIDO NA PISTA
+    # (09/09/2026): num episodio de perda de 9.9s a cabeca varreu so os
+    # 3s de RECOVERING e depois ficou parada no centro por ~7s -- o robo
+    # esperava cego. Vale mais continuar procurando.
+    scan_in_safe_stop: true
+
+# ---------------------------------------------------------------------
+#  SERVO DA CAMERA SUPERIOR
+# ---------------------------------------------------------------------
+head_servo_node:
+  ros__parameters:
+    max_angle_deg: 45.0
+    max_rate_deg_s: 60.0
+    center_rate_deg_s: 25.0
+    scan_amplitude_deg: 35.0
+    scan_rate_deg_s: 40.0
+    center_deadband_deg: 0.3
+    request_timeout: 0.5
+    # 40Hz (nao 20): o PWM do servo no firmware roda a 50Hz
+    # (servo.setPeriodHertz(50)); mandar alvo novo so 20x/s faz cada
+    # "salto" ficar maior e mais espacado do que o hardware permite,
+    # visivel como movimento em passos no TRACK. Muda o periodo do
+    # timer -- so pega efeito reiniciando o no (ver comentario em
+    # _on_parameters).
+    rate_hz: 40.0
+    # MODE_TRACK (servovisual): taxa de giro (graus/s) proporcional ao
+    # erro lateral (metros) da propria camera superior.
+    track_gain_deg_s_per_m: 300.0
+    track_confidence_min: 0.40
+    track_timeout: 0.40
+    # Suaviza o erro antes de virar taxa -- sem isso o servo ficou
+    # perceptivelmente "em passos" no teste real (ruido de frame a
+    # frame do ajuste de bandas da camera superior).
+    track_filter_alpha: 0.45
+    # MIRA ADIANTE. lateral_error da camera superior e medido na banda
+    # mais PROXIMA dela (~24 cm do robo, campo confirmado no laboratorio:
+    # 5/5 bandas, confianca 0.63-0.84 em todos os apontamentos de -32 a
+    # +8 graus). Zerar esse erro aponta a cabeca para a tangente LOCAL da
+    # linha -- a camera fica paralela a pista em vez de olhar para onde
+    # ela vai, e na curva o vertice sai do quadro enquanto a cabeca fica
+    # presa no trecho reto. Aqui o erro e projetado para a frente com o
+    # heading e a curvatura que o detector ja publica e valida.
+    # 0.34 = ponta distante do que a frontal REALMENTE mede: ela ve de
+    # depth_near=0.205 a depth_far=0.545, mas roi_top=0.45 corta o topo,
+    # sobrando 0.205..0.358. Medido que baixar roi_top NAO ajuda: em
+    # 0.35/0.25/0.15 a confianca caiu (0.35 -> 0.31, 0.15 -> 0.008) e o
+    # detector passou a agarrar lixo, entao a faixa util e mesmo essa.
+    # 0.0 desliga a extrapolacao e volta a mirar a banda mais proxima.
+    head_preview_distance_m: 0.34
+    head_preview_max_heading_deg: 50.0
+    # Anti-windup da parte visual. _tracked_angle era integral pura,
+    # limitada so pelo clamp de max_angle_deg (45 graus, permissivo
+    # demais): na SAIDA da curva a cabeca ficava com o angulo que tinha
+    # DENTRO dela, e como esse angulo realimenta a direcao do corpo
+    # (servo_bearing_gain em line_controller), corpo e cabeca se prendiam
+    # num laco -- o "depois da curva a camera vai pra direita e o robo
+    # perde o controle" relatado na pista. Com vazamento o integrador
+    # vira atraso de primeira ordem: para erro constante o angulo tende a
+    # tau*ganho*erro (2.0*300*0.02 = 12 graus para 2 cm de erro), e um
+    # angulo velho sem erro que o sustente decai sozinho. 0.0 desliga.
+    track_leak_tau: 2.0
+    # Ao PERDER a linha, a parte visual decai com esta constante em vez
+    # de ser zerada. MEDIDO: a superior fica invalida em 13.8% do tempo e
+    # 5 dos 6 episodios longos precedem uma quebra em ate 3s -- zerar
+    # mandava a cabeca para o centro exatamente ali, e centrada ela nao
+    # reencontra (94.9% de validade virada contra 85.0% centrada).
+    # A linha foi para um lado: e o melhor palpite de onde ela esta.
+    # 0 volta ao comportamento antigo (zerar de imediato).
+    track_hold_tau: 1.5
+
+# ---------------------------------------------------------------------
+#  PONTE SERIAL / ESP32
+# ---------------------------------------------------------------------
+motor_serial_node:
+  ros__parameters:
+    port: /dev/ttyACM0
+    # 921600 (era 115200). TEM DE BATER com Config::SERIAL_BAUD do
+    # firmware -- se divergir, nao ha comunicacao nenhuma.
+    #
+    # MEDIDO em 10/09/2026: a telemetria antiga (209 B a 5 Hz) usava 9.1%
+    # de 115200. Com ODOM/WHEEL subindo para 50 Hz o uso iria a 55%,
+    # apertado demais para crescer. A 921600 fica em 7%.
+    #
+    # O link e uma UART de verdade: a ponte e um CH343 (1a86:55d3), que
+    # aparece como cdc_acm mas converte USB<->UART. Nao e o USB nativo do
+    # S3, entao o baud nao e cosmetico.
+    baudrate: 921600
+    publish_tf: true
+    # Barreira final de velocidade, aplicada depois de qualquer
+    # controlador e antes da serial.
+    max_vx: 0.45
+    max_vy: 0.45
+    max_wz: 2.5
+    # Sem comando novo nesse tempo, o robo para. O firmware tem o seu
+    # proprio timeout de 200 ms para o caso de a serial cair.
+    cmd_timeout: 0.30
+    # Ver o comentario no codigo: 200Hz aqui consumia ~40% de uma CPU
+    # do Pi e derrubava o FPS das cameras por contencao.
+    serial_read_rate: 50.0
+    twist_rate: 50.0
+    state_rate: 5.0
+    start_autonomy_enabled: false
+    # OFFSET DO SUPORTE da camera superior. Fica aqui, junto com a
+    # inversao de sinal do servo, porque esta e a UNICA fronteira entre
+    # a convencao ROS e o hardware -- o resto do sistema raciocina em
+    # angulo VERDADEIRO (0 = reto a frente).
+    # MEDIDO (10/09/2026): varrendo o pan de -12 a +8 graus e comparando
+    # o erro lateral que a SUPERIOR reporta com o da INFERIOR (a
+    # referencia confiavel), a discordancia foi -3.65mm por grau,
+    # linear, cruzando zero em pan = -3.03 graus. Depois de aplicar,
+    # elas passaram a concordar em +0.34 graus.
+    # Para recalibrar apos mexer no suporte: robo parado sobre uma reta,
+    # varra o pan e veja em que angulo as duas leituras coincidem.
+    servo_offset_deg: -3.0
+
+# ---------------------------------------------------------------------
+#  MODO RC -- joystick DualShock 4 pelo Bluetooth da RASPBERRY
+# ---------------------------------------------------------------------
+#  O ESP32-S3 nao pode parear o controle: ele tem Bluetooth 5 LE apenas,
+#  sem Bluetooth Classic, e o DualShock 4 e HID sobre Classic. Por isso
+#  o joystick vive no Pi e desce pela serial como TWIST comum -- o
+#  firmware nao sabe que existe modo RC, e nao precisa saber.
+# ---------------------------------------------------------------------
+joy_teleop_node:
+  ros__parameters:
+    # Indices do DualShock 4 no driver hid-playstation. Sao parametros
+    # porque driver e kernel mudam a numeracao, e remapear nao deveria
+    # exigir editar codigo. Confira com: ros2 topic echo /joy
+    axis_vx: 1              # analogico esquerdo, vertical
+    axis_wz: 0              # analogico esquerdo, horizontal
+    axis_servo: 3           # analogico direito, horizontal
+    button_strafe_left: 4   # L1
+    button_strafe_right: 5  # R1
+
+    # HOMEM-MORTO. Nao foi pedido, foi incluido de proposito: analogico
+    # com deriva e um robo que sai andando sozinho. L2 chega como EIXO
+    # (-1 solto, +1 afundado) no driver moderno; para usar um BOTAO,
+    # ponha o indice em deadman_button e deixe deadman_axis em -1.
+    deadman_axis: 2
+    deadman_button: -1
+    require_deadman: true
+
+    # Limites do modo RC, deliberadamente abaixo do v_max da autonomia:
+    # na mao o operador reage mais devagar que o controlador.
+    max_vx: 0.20
+    max_vy: 0.15
+    max_wz: 1.20
+    max_servo_deg: 45.0
+
+    # Zona morta REESCALADA: sem reescalar, o comando salta de 0 para o
+    # valor da zona morta ao sair dela e o robo da um tranco.
+    deadzone: 0.12
+    rate_hz: 30.0
+    # Sem /joy por este tempo, zera o comando. O ESP32 ja tem watchdog
+    # de 200 ms, mas nao depender so dele e mais barato que descobrir
+    # que ele falhou.
+    joy_timeout: 0.5
+    # Cala o seguidor no /head/request para os dois nao disputarem o
+    # servo -- armadilha ja documentada no README.
+    take_head_authority: true

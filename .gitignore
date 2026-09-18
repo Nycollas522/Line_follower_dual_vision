@@ -1,0 +1,17 @@
+# --- ROS 2 / colcon: tudo gerado, nunca versionar ---
+build/
+install/
+log/
+*.pyc
+__pycache__/
+.pytest_cache/
+
+# --- PlatformIO: .pio tem ~40 MB de objetos e binarios ---
+.pio/
+*.elf
+*.bin
+
+# --- dados de corrida: grandes e regeraveis pelo scripts/corrida.py ---
+# Se quiser versionar uma corrida especifica, force com: git add -f
+*.csv
+*.log

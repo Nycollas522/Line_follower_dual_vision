@@ -18,6 +18,18 @@ cd "$(dirname "$0")"
 # instancias empilhadas.
 PADRAO='line_follower.launch|robot_bringup/lib|camera_ros/lib'
 
+# A pilha agora sobe pelo robo.service (systemd, Restart=on-failure,
+# RestartSec=10). Matar os processos por baixo dele faz o systemd subir
+# a pilha de novo NO MEIO da gravacao, e o fim deste script ainda lanca
+# uma segunda instancia. Com o servico ativo, recusa e diz o que fazer.
+if systemctl is-active --quiet robo 2>/dev/null; then
+  echo '!!! robo.service esta ativo. Pare antes e suba depois:'
+  echo '      sudo systemctl stop robo'
+  echo '      ./gravar.sh --off'
+  echo '      sudo systemctl start robo'
+  exit 1
+fi
+
 ESTAVA_NO_AR=0
 if pgrep -f "$PADRAO" > /dev/null 2>&1; then
   ESTAVA_NO_AR=1

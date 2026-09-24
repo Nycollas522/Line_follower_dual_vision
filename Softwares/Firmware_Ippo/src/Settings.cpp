@@ -23,6 +23,7 @@ void Settings::defaults() {
   d.wheelDiameter = Config::WHEEL_D_M;
   d.imuYawAxis = Config::IMU_YAW_AXIS_DEFAULT;
   d.imuYawSign = Config::IMU_YAW_SIGN_DEFAULT;
+  d.servoTrim = Config::SERVO_TRIM_DEFAULT;
   dirty = true;
 }
 
@@ -63,6 +64,7 @@ void Settings::load() {
   d.wheelDiameter = p.getFloat("wheeld", Config::WHEEL_D_M);
   d.imuYawAxis = p.getUChar("imuaxis", Config::IMU_YAW_AXIS_DEFAULT);
   d.imuYawSign = p.getChar("imusign", Config::IMU_YAW_SIGN_DEFAULT);
+  d.servoTrim = p.getFloat("strim", Config::SERVO_TRIM_DEFAULT);
 
   // MIGRACAO. O flag "ok" so dizia "ja gravei alguma vez" -- sem versao,
   // mudar um default nunca chegava a um robo que ja tinha NVS gravada, e
@@ -116,6 +118,7 @@ bool Settings::save() {
   p.putFloat("wheeld", d.wheelDiameter);
   p.putUChar("imuaxis", d.imuYawAxis);
   p.putChar("imusign", d.imuYawSign);
+  p.putFloat("strim", d.servoTrim);
   p.putULong("ver", Config::SETTINGS_VERSION);
   p.end();
   dirty = false;

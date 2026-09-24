@@ -73,6 +73,18 @@ struct CtlStats {
 };
 CtlStats ctl;
 float servoAngle = 0;
+
+// Aponta o servo: angulo do PROTOCOLO (0 = centro calibrado) + trim.
+// writeMicroseconds em vez de write(int): write arredondava para grau
+// inteiro, o que somava degraus de 1 grau a folga mecanica.
+void servoAponta(float angulo) {
+  const float fisico = constrain(angulo + 90.0f + cfg.get().servoTrim,
+                                 0.0f, 180.0f);
+  const float us = Config::SERVO_US_MIN
+                   + fisico * (Config::SERVO_US_MAX - Config::SERVO_US_MIN)
+                     / 180.0f;
+  servo.writeMicroseconds(lroundf(us));
+}
 bool test = false;
 
 float ticksPerMeter() {
@@ -453,8 +465,8 @@ void setup() {
   apply();
 
   servo.setPeriodHertz(50);
-  servo.attach(Config::SERVO, 500, 2400);
-  servo.write(90);
+  servo.attach(Config::SERVO, Config::SERVO_US_MIN, Config::SERVO_US_MAX);
+  servoAponta(0);   // ja nasce no centro calibrado
 
   motor.begin();
   enc.begin();
@@ -506,7 +518,7 @@ void loop() {
       stop();
     } else if (s.type == SerialProtocol::SERVO) {
       servoAngle = constrain(s.a, -90.0f, 90.0f);
-      servo.write(lroundf(servoAngle + 90));
+      servoAponta(servoAngle);
     } else if (s.type == SerialProtocol::PID) {
       auto& x = cfg.edit();
       x.kp = s.a;
@@ -542,7 +554,8 @@ void loop() {
           motor.set(i, menu.motorTestPwm());
         }
       } else if (menu.servoTest()) {
-        servo.write(menu.servoTestAngle());
+        // Teste do menu: 90 = centro, agora o CALIBRADO.
+        servoAponta(menu.servoTestAngle() - 90.0f);
       } else {
         control(dt);
       }
@@ -555,7 +568,7 @@ void loop() {
   if (a == MenuAction::STOP) {
     stopReason = STOP_MENU;
     stop();
-    servo.write(90);
+    servoAponta(0);
   }
   if (a == MenuAction::RESET_ODOM) {
     od = {};

@@ -22,6 +22,9 @@ struct SettingsData {
   // remontou, recalibra pelo menu, nao recompila.
   uint8_t imuYawAxis;
   int8_t imuYawSign;
+  // Graus fisicos somados a todo comando do servo (ver Config.h).
+  // Chave nova em NVS: robo sem ela recebe o default, sem mudar versao.
+  float servoTrim;
 };
 
 class Settings {

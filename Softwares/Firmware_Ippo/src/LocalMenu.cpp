@@ -3,7 +3,7 @@
 #include "Config.h"
 
 namespace {
-constexpr uint8_t CONFIG_COUNT = 14;
+constexpr uint8_t CONFIG_COUNT = 15;
 constexpr uint8_t TEST_COUNT = 8;
 constexpr uint32_t LONG_PRESS_MS = 700;
 // Toque curto = avanca, toque medio = volta. So o B1 longo (acima de
@@ -74,7 +74,7 @@ constexpr int16_t BAR_H = 11;   // altura da barra superior
 const char* CONFIG_NAMES[CONFIG_COUNT] = {
   "KP", "KI", "KD", "PWM MIN", "PWM LIMITE", "TICKS/VOLTA",
   "CAL BATERIA", "MAX VELOCIDADE", "PESO YAW", "ACEL GIRO",
-  "EIXO L", "EIXO W", "DIAM RODA", "SALVAR",
+  "EIXO L", "EIXO W", "DIAM RODA", "SERVO TRIM", "SALVAR",
 };
 
 const char* TEST_NAMES[TEST_COUNT] = {
@@ -114,6 +114,7 @@ void LocalMenu::changeConfig(Settings& cfg, int direction) {
     case 10: value.halfL = constrain(value.halfL + direction * 0.001f, 0.02f, 0.30f); break;
     case 11: value.halfW = constrain(value.halfW + direction * 0.001f, 0.02f, 0.30f); break;
     case 12: value.wheelDiameter = constrain(value.wheelDiameter + direction * 0.001f, 0.02f, 0.20f); break;
+    case 13: value.servoTrim = constrain(value.servoTrim + direction * 0.5f, -30.0f, 30.0f); break;
     default: break;
   }
 }
@@ -139,6 +140,7 @@ void LocalMenu::formatConfigValue(
     case 10: snprintf(buf, len, "EIXO L %.1fcm", v.halfL * 100.0f); break;
     case 11: snprintf(buf, len, "EIXO W %.1fcm", v.halfW * 100.0f); break;
     case 12: snprintf(buf, len, "DIAM %.1fcm", v.wheelDiameter * 100.0f); break;
+    case 13: snprintf(buf, len, "TRIM %+.1f", v.servoTrim); break;
     default: snprintf(buf, len, "SALVAR"); break;
   }
 }

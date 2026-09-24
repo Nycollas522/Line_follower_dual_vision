@@ -149,6 +149,18 @@ constexpr float YAW_ENCODER_WEIGHT = 0.15f;
 // boot; estes sao so o ponto de partida.
 constexpr uint8_t IMU_YAW_AXIS_DEFAULT = 0;
 constexpr int8_t IMU_YAW_SIGN_DEFAULT = 1;
+
+// TRIM DO SERVO DA CABECA, em graus fisicos somados a TODO comando do
+// servo (boot, STOP, SERVO,a do Pi e teste do menu). Com ele o "0" do
+// protocolo e o centro CALIBRADO, e a cabeca ja nasce alinhada -- antes
+// o boot e o STOP iam para o centro mecanico e ficavam tortos ate o Pi
+// mandar o primeiro comando.
+// MEDIDO (24/09/2026): varrendo o pan e comparando as duas cameras numa
+// reta, o alinhamento ficou em -(0 + 7.0) no protocolo antigo, ou seja
+// SERVO,-7. Persistido em NVS e ajustavel pelo menu (SERVO TRIM).
+constexpr float SERVO_TRIM_DEFAULT = -7.0f;
+constexpr uint16_t SERVO_US_MIN = 500;    // pulso em 0 graus fisicos
+constexpr uint16_t SERVO_US_MAX = 2400;   // pulso em 180 graus fisicos
 constexpr float ACCEL_ALPHA = 0.20f;
 
 constexpr float R1 = 100000.0f;

@@ -840,7 +840,13 @@ motor_serial_node:
     # do servo ~1.9 graus; ele anda em degraus de ~2). Novo offset =
     # -3.0 + 10.0. A folga sozinha deixa ~+/-4 graus de heading na
     # superior, conforme o lado por onde a cabeca chega.
-    servo_offset_deg: 7.0
+    #
+    # MOVIDO PARA O FIRMWARE (24/09/2026): o trim agora e Settings.
+    # servoTrim no ESP32 (default -7.0, menu CONFIG > SERVO TRIM), para a
+    # cabeca nascer alinhada no boot e no STOP, antes de o Pi comandar.
+    # Aqui fica 0.0 -- somar os dois aplicaria o trim duas vezes.
+    # Firmware ANTERIOR ao servoTrim precisa de 7.0 aqui.
+    servo_offset_deg: 0.0
 
 # ---------------------------------------------------------------------
 #  MODO RC -- joystick DualShock 4 pelo Bluetooth da RASPBERRY

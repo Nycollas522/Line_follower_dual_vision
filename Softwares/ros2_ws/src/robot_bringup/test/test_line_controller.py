@@ -1587,3 +1587,52 @@ def test_feedforward_nao_cai_quando_o_frame_a_frente_perde_a_curvatura():
             now=204.0 + i * DT, enabled=True, obs=_sem_curvatura_valida(),
         ).wz
     assert depois < 0.8 * antes  # continua girando (wz negativo) quase igual
+
+
+def _anda(controller, obs, preview, segundos, start):
+    """Como run(), mas alimenta a ODOMETRIA com o vx comandado."""
+    cmd = None
+    for i in range(max(1, int(segundos / DT))):
+        cmd = controller.update(
+            now=start + i * DT, enabled=True, obs=obs, preview=preview,
+            odom_speed=cmd.vx if cmd is not None else 0.0,
+        )
+    return cmd
+
+
+def test_freio_do_preview_fica_seguro_quando_ele_some():
+    """Corrida de 24/09: a superior pede freio, a cabeca gira (ou a
+    confianca cai), o preview deixa de valer e o robo acelerava de volta
+    faltando 12-16 cm para a quina. O freio tem de durar brake_hold_m."""
+    controller = make_controller(align_on_start=False, brake_hold_m=0.20)
+    reta = good(lateral=0.0, heading=0.0)
+    _anda(controller, reta, None, 3.0, 100.0)            # cruzeiro
+    quebra = good(heading=math.radians(70.0))
+    cmd = _anda(controller, reta, quebra, 1.0, 103.0)    # superior avisa
+    assert cmd.vx < 0.08
+    # preview some; 0,8 s a ~0,07 m/s = ~6 cm, bem menos que 20 cm
+    cmd = _anda(controller, reta, None, 0.8, 104.0)
+    assert cmd.vx < 0.08
+
+
+def test_freio_do_preview_solta_depois_da_distancia():
+    """Segurado nao e eterno: passada brake_hold_m, volta a acelerar."""
+    controller = make_controller(align_on_start=False, brake_hold_m=0.20)
+    reta = good(lateral=0.0, heading=0.0)
+    _anda(controller, reta, None, 3.0, 100.0)
+    _anda(controller, reta, good(heading=math.radians(70.0)), 1.0, 103.0)
+    # 4 s a >= 0,07 m/s > 0,28 m: a memoria expirou e ele acelerou
+    cmd = _anda(controller, reta, None, 4.0, 104.0)
+    assert cmd.vx > 0.15
+
+
+def test_freio_segurado_expira_pelo_tempo_sem_odometria():
+    controller = make_controller(
+        align_on_start=False, brake_hold_m=0.20, brake_hold_max_s=1.0
+    )
+    reta = good(lateral=0.0, heading=0.0)
+    run(controller, reta, 3.0)
+    run(controller, reta, 1.0, start=103.0,
+        preview=good(heading=math.radians(70.0)))
+    cmd = run(controller, reta, 2.0, start=104.0)   # sem odom
+    assert cmd.vx > 0.10

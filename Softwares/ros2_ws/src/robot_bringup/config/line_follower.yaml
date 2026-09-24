@@ -622,6 +622,22 @@ line_follower_node:
     # enxerga a frente (19,8 a 25,3 cm): a leitura ainda descreve onde o
     # robo esta agora. 0.0 desliga a memoria.
     preview_memory_time: 2.0
+    # MEMORIA DE FREIO. MEDIDO (corrida_20260924_112344, 5 quebras): a
+    # superior avisa ~17 cm antes e o robo freia a v_min, mas o freio
+    # SOLTAVA faltando 12-16 cm -- a cabeca gira para rastrear a quebra
+    # (passa de preview_center_tol_deg) ou a confianca cai abaixo de
+    # preview_confidence_min. Chegava na quina a 0.11-0.18 m/s e perdeu
+    # a linha em 2 das 5. O freio pedido pelo preview agora fica seguro
+    # ate o robo andar brake_hold_m (odometria). Deve levar o vx na
+    # quina para ~0.07-0.08. brake_hold_max_s cobre odometria ausente.
+    # 0.0 desliga.
+    # Replay dessa corrida: 4 das 5 quinas passam de 0.12-0.17 para
+    # 0.070. Segurar so pedidos >= 0.8 (heading da superior ~25 graus)
+    # custa 17% do vx medio; segurar todos custava 24%, mesmas quinas.
+    # 0.15 m deixava escapar duas quinas.
+    brake_hold_m: 0.20
+    brake_hold_max_s: 4.0
+    brake_hold_min_severity: 0.8
     # Fracao da curvatura antecipada aplicada como feedforward. So
     # funciona para curva suave -- ver preview_heading_gain para quinas.
     preview_ff_gain: 0.35

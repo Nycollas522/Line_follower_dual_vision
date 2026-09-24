@@ -22,6 +22,7 @@ Uso:
     python3 scripts/corrida.py 20         # 20 s
 """
 import csv
+import math
 import os
 import signal
 import statistics as st
@@ -82,6 +83,12 @@ class Corrida(Node):
         self.ovx = 0.0
         self.ovy = 0.0
         self.owz = 0.0
+        # Pose integrada pelo FIRMWARE (encoders + giroscopio), para o
+        # mapa do circuito (logs/mapa.py). Zero e o boot do ESP32, nao o
+        # inicio da corrida.
+        self.px = 0.0
+        self.py = 0.0
+        self.pyaw = 0.0
         self.rodas = [0.0, 0.0, 0.0, 0.0]
         self.create_subscription(LineDetection, '/line/detection',
                                  self._det, CTRL)
@@ -117,6 +124,10 @@ class Corrida(Node):
         self.ovx = m.twist.twist.linear.x
         self.ovy = m.twist.twist.linear.y
         self.owz = m.twist.twist.angular.z
+        self.px = m.pose.pose.position.x
+        self.py = m.pose.pose.position.y
+        q = m.pose.pose.orientation
+        self.pyaw = 2.0 * math.atan2(q.z, q.w)
 
     def _ws(self, m):
         if len(m.velocity) >= 4:
@@ -370,6 +381,9 @@ def main():
                 'odom_vx': round(node.ovx, 4),
                 'odom_vy': round(node.ovy, 4),
                 'odom_wz': round(node.owz, 4),
+                'x_m': round(node.px, 4),
+                'y_m': round(node.py, 4),
+                'yaw_deg': round(math.degrees(node.pyaw), 2),
                 'volts': round(node.volts, 2),
                 'servo': round(node.servo, 2),
             }
@@ -414,6 +428,7 @@ def main():
     relata_preview(linhas)
     relata_atuacao(linhas)
     print(f'\nCSV em {CSV}')
+    print(f'mapa: python3 ~/ros2_ws/logs/mapa.py {CSV}')
 
 
 if __name__ == '__main__':

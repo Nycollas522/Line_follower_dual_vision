@@ -283,6 +283,21 @@ class ControllerConfig:
     preview_ff_max_ratio: float = 0.30
     preview_center_tol_deg: float = 8.0  # pan maximo para confiar no preview
     preview_speed_gain: float = 1.0    # peso do preview na reducao de velocidade
+    # MEMORIA DE FREIO. MEDIDO (corrida de 24/09/2026, 5 quebras): a
+    # superior avisa a quebra ~17 cm antes e o robo freia ate v_min --
+    # mas o freio SOLTAVA faltando 12-16 cm, porque a cabeca gira para
+    # rastrear a quebra (passa de preview_center_tol_deg) ou a confianca
+    # cai abaixo de preview_confidence_min com a linha a ~73 graus. O
+    # robo chegava na quina a 0.11-0.18 m/s e perdeu a linha em 2 das 5.
+    # Agora a maior severidade pedida pelo preview fica SEGURA ate o robo
+    # andar brake_hold_m (odometria) desde a ultima vez que foi pedida.
+    # O teto de tempo cobre odometria ausente. 0.0 desliga.
+    # So pedidos FORTES sao segurados (0.8 = heading da superior ~25
+    # graus): segurar tambem os moderados custava 24% do vx medio no
+    # replay da mesma corrida, contra 17% assim, com as mesmas quinas.
+    brake_hold_m: float = 0.20
+    brake_hold_max_s: float = 4.0
+    brake_hold_min_severity: float = 0.8
 
     # --- bearing pelo servo (camera superior rastreando a linha) ----
     # Ideia diferente do preview acima: em vez de inferir heading a
@@ -396,6 +411,10 @@ class FollowerController:
         # ultimo lado visto pela superior enquanto ela era utilizavel
         self._preview_side: float | None = None
         self._preview_side_time = 0.0
+        # memoria de freio: nivel segurado, e onde/quando foi pedido
+        self._freio = 0.0
+        self._freio_dist = 0.0
+        self._freio_t = 0.0
         self._relock_count = 0
         self._seen_line = False
         self._scan_phase = 0.0
@@ -496,6 +515,22 @@ class FollowerController:
         # ajuste separa os dois -- ele e ~zero no segundo caso.
         if obs.residual_valid and cfg.ref_residual > 0.0:
             terms.append(abs(obs.fit_residual) / cfg.ref_residual)
+        terms.append(self._severidade_do_preview(preview))
+        if servo_bearing_active:
+            # A cabeca esta virada N graus para manter a linha centrada:
+            # e um aviso direto de que o corpo esta (ou vai precisar
+            # ficar) desalinhado por essa ordem de grandeza.
+            terms.append(
+                cfg.preview_speed_gain
+                * abs(math.radians(servo_angle_deg))
+                / cfg.ref_heading
+            )
+        return min(1.0, max(0.0, max(terms)))
+
+    def _severidade_do_preview(self, preview: Observation | None) -> float:
+        """So a parte da severidade que vem da camera superior."""
+        cfg = self.config
+        terms = [0.0]
         if preview is not None and preview.curvature_valid:
             terms.append(
                 cfg.preview_speed_gain * abs(preview.curvature) / cfg.ref_curvature
@@ -511,16 +546,29 @@ class FollowerController:
                 * abs(preview.heading_error)
                 / cfg.ref_heading
             )
-        if servo_bearing_active:
-            # A cabeca esta virada N graus para manter a linha centrada:
-            # e um aviso direto de que o corpo esta (ou vai precisar
-            # ficar) desalinhado por essa ordem de grandeza.
-            terms.append(
-                cfg.preview_speed_gain
-                * abs(math.radians(servo_angle_deg))
-                / cfg.ref_heading
-            )
-        return min(1.0, max(0.0, max(terms)))
+        return min(1.0, max(terms))
+
+    def _segura_freio(self, pedido: float) -> float:
+        """Nivel de freio que o preview pediu ha menos de brake_hold_m.
+
+        Um pedido igual ou maior que o segurado renova a contagem; a
+        memoria expira pela distancia andada (odometria) ou pelo teto de
+        tempo, o que vier primeiro.
+        """
+        cfg = self.config
+        if cfg.brake_hold_m <= 0.0:
+            return 0.0
+        expirou = (
+            self.distance - self._freio_dist >= cfg.brake_hold_m
+            or self._now - self._freio_t >= cfg.brake_hold_max_s
+        )
+        if expirou:
+            self._freio = 0.0
+        if pedido >= cfg.brake_hold_min_severity and pedido >= self._freio:
+            self._freio = pedido
+            self._freio_dist = self.distance
+            self._freio_t = self._now
+        return self._freio
 
     def _ganho_de_heading(self, vx: float, lookahead: float = 0.0) -> float:
         """k_heading que mantem o amortecimento constante com a velocidade.
@@ -953,6 +1001,12 @@ class FollowerController:
         elif self.state in (State.FOLLOWING, State.DEGRADED):
             severity = self._severity(
                 obs, preview_speed, servo_bearing_active, servo_angle_deg
+            )
+            # O preview pode sumir (cabeca girada, confianca baixa) bem
+            # quando a quebra chega; o freio que ele pediu continua.
+            severity = max(
+                severity,
+                self._segura_freio(self._severidade_do_preview(preview_speed)),
             )
             if self.state == State.DEGRADED:
                 # Evidencia fraca: anda no minimo e ignora o preview

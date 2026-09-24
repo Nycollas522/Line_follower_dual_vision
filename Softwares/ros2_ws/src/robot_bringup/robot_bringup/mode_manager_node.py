@@ -60,8 +60,8 @@ class ModeManagerNode(Node):
         self.declare_parameter('modo_inicial', IDLE)
         # v_min/v_max do seguidor por perfil (SUAVE, MEDIA, RAPIDA). O
         # perfil vem do menu do ESP32; os NUMEROS moram aqui, no YAML.
-        self.declare_parameter('perfil_v_min', [0.07, 0.09, 0.11])
-        self.declare_parameter('perfil_v_max', [0.22, 0.28, 0.34])
+        self.declare_parameter('perfil_v_min', [0.08, 0.10, 0.12])
+        self.declare_parameter('perfil_v_max', [0.25, 0.32, 0.44])
         self._perfil: str | None = None
 
         self.estado_pub = self.create_publisher(

@@ -347,10 +347,12 @@ line_follower_node:
 
     # === AJUSTE: comece por estes seis ===============================
     # 1. Velocidade em reta com linha limpa. Suba de 0.02 em 0.02.
-    v_max: 0.22
+    # Com firmware novo quem manda e o PERFIL (mode_manager_node, no fim
+    # do arquivo); estes dois valem ate o perfil chegar. Iguais ao SUAVE.
+    v_max: 0.25
     # 2. Velocidade no pior caso ainda seguindo (curva fechada, pouca
     #    confianca). Se o robo trava em curva, este esta baixo demais.
-    v_min: 0.07
+    v_min: 0.08
     # 3. Ganho principal: rad/s por metro de erro lateral.
     #    Oscila em reta -> baixe. Corta curva por dentro -> suba.
     k_lateral: 9.0
@@ -952,5 +954,12 @@ mode_manager_node:
     # a 0.128 e 0.180; passaram as de 0.107, 0.142 e 0.154. RAPIDA (0.11)
     # esta nessa borda -- espere mais recuperacoes (0.3-0.5 s cada).
     # SUAVE = o que rodou ate hoje. Regra: max(v_min) <= min(v_max).
-    perfil_v_min: [0.07, 0.09, 0.11]
-    perfil_v_max: [0.22, 0.28, 0.34]
+    # SUBIDA DE ~10-15% nos tres (24/09, corrida_20260924_132830 em
+    # MEDIA com a memoria corrigida): retas a 0.143, max 0.26 (o v_max
+    # de 0.28 quase atingido), volta em 76 s. As 4 recuperacoes foram
+    # TODAS em v_min (0.09) com a cabeca travada em +45 graus -- quinas
+    # fechadas em que a superior nao gira o bastante, nao velocidade de
+    # reta. v_min mais alto aumenta esse risco; v_max nao.
+    #            SUAVE MEDIA RAPIDA
+    perfil_v_min: [0.08, 0.10, 0.12]
+    perfil_v_max: [0.25, 0.32, 0.44]

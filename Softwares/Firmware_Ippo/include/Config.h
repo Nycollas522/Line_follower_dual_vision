@@ -40,7 +40,10 @@ constexpr uint32_t CONTROL_US = 10000;
 // SIGNIFICADO de um campo mudar -- sem isso o valor antigo continua em
 // NVS e o default novo nunca pega. A v2 marca a troca dos encoders para
 // decodificacao x4, que multiplica ticksRev por 4.
-constexpr uint32_t SETTINGS_VERSION = 3;
+// v4 (24/09/2026): MAX VELOCIDADE acima de 1.0 m/s volta ao default --
+// o menu deixava ir a 2.0, o que desliga na pratica a saturacao por roda
+// do firmware (achado em NVS com 2.00, sem registro de quem mudou).
+constexpr uint32_t SETTINGS_VERSION = 4;
 
 // Baud da UART para o CH343. MEDIDO em 10/09/2026: a telemetria antiga
 // (209 B a 5 Hz) ocupava 9.1% de 115200. Com ODOM/WHEEL a 50 Hz o uso
@@ -159,6 +162,13 @@ constexpr int8_t IMU_YAW_SIGN_DEFAULT = 1;
 // reta, o alinhamento ficou em -(0 + 7.0) no protocolo antigo, ou seja
 // SERVO,-7. Persistido em NVS e ajustavel pelo menu (SERVO TRIM).
 constexpr float SERVO_TRIM_DEFAULT = -7.0f;
+
+// PERFIL DE VELOCIDADE do seguidor: 0 SUAVE, 1 MEDIA, 2 RAPIDA. O ESP32
+// so guarda e mostra; quem traduz em v_min/v_max e o Pi (mode_manager,
+// tabela no line_follower.yaml), lendo o campo vperfil da linha SETTINGS
+// -- que sai no boot e a cada SALVAR. Escolhe-se ANTES da corrida.
+constexpr uint8_t SPEED_PROFILE_DEFAULT = 0;
+constexpr uint8_t SPEED_PROFILE_COUNT = 3;
 constexpr uint16_t SERVO_US_MIN = 500;    // pulso em 0 graus fisicos
 constexpr uint16_t SERVO_US_MAX = 2400;   // pulso em 180 graus fisicos
 constexpr float ACCEL_ALPHA = 0.20f;

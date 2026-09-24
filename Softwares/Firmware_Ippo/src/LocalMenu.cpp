@@ -3,7 +3,7 @@
 #include "Config.h"
 
 namespace {
-constexpr uint8_t CONFIG_COUNT = 15;
+constexpr uint8_t CONFIG_COUNT = 16;
 constexpr uint8_t TEST_COUNT = 8;
 constexpr uint32_t LONG_PRESS_MS = 700;
 // Toque curto = avanca, toque medio = volta. So o B1 longo (acima de
@@ -74,7 +74,7 @@ constexpr int16_t BAR_H = 11;   // altura da barra superior
 const char* CONFIG_NAMES[CONFIG_COUNT] = {
   "KP", "KI", "KD", "PWM MIN", "PWM LIMITE", "TICKS/VOLTA",
   "CAL BATERIA", "MAX VELOCIDADE", "PESO YAW", "ACEL GIRO",
-  "EIXO L", "EIXO W", "DIAM RODA", "SERVO TRIM", "SALVAR",
+  "EIXO L", "EIXO W", "DIAM RODA", "SERVO TRIM", "VELOCIDADE", "SALVAR",
 };
 
 const char* TEST_NAMES[TEST_COUNT] = {
@@ -108,13 +108,17 @@ void LocalMenu::changeConfig(Settings& cfg, int direction) {
     case 4: value.pwmLimit = constrain(value.pwmLimit + direction * 5, 0, 255); break;
     case 5: value.ticksRev = constrain(value.ticksRev + direction, 1.0f, 5000.0f); break;
     case 6: value.battCal = constrain(value.battCal + direction * 0.001f, 0.5f, 1.5f); break;
-    case 7: value.maxWheelMps = constrain(value.maxWheelMps + direction * 0.05f, 0.1f, 2.0f); break;
+    case 7: value.maxWheelMps = constrain(value.maxWheelMps + direction * 0.05f, 0.1f, 1.0f); break;
     case 8: value.yawEncoderWeight = constrain(value.yawEncoderWeight + direction * 0.05f, 0.0f, 1.0f); break;
     case 9: value.maxWzAccel = constrain(value.maxWzAccel + direction * 0.5f, 0.5f, 20.0f); break;
     case 10: value.halfL = constrain(value.halfL + direction * 0.001f, 0.02f, 0.30f); break;
     case 11: value.halfW = constrain(value.halfW + direction * 0.001f, 0.02f, 0.30f); break;
     case 12: value.wheelDiameter = constrain(value.wheelDiameter + direction * 0.001f, 0.02f, 0.20f); break;
     case 13: value.servoTrim = constrain(value.servoTrim + direction * 0.5f, -30.0f, 30.0f); break;
+    case 14:
+      value.speedProfile = (uint8_t) ((value.speedProfile + Config::SPEED_PROFILE_COUNT + direction)
+                                      % Config::SPEED_PROFILE_COUNT);
+      break;
     default: break;
   }
 }
@@ -141,6 +145,12 @@ void LocalMenu::formatConfigValue(
     case 11: snprintf(buf, len, "EIXO W %.1fcm", v.halfW * 100.0f); break;
     case 12: snprintf(buf, len, "DIAM %.1fcm", v.wheelDiameter * 100.0f); break;
     case 13: snprintf(buf, len, "TRIM %+.1f", v.servoTrim); break;
+    case 14: {
+      static const char* const NOMES[] = {"SUAVE", "MEDIA", "RAPIDA"};
+      snprintf(buf, len, "VEL %s",
+               v.speedProfile < Config::SPEED_PROFILE_COUNT ? NOMES[v.speedProfile] : "?");
+      break;
+    }
     default: snprintf(buf, len, "SALVAR"); break;
   }
 }

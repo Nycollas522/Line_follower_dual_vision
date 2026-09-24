@@ -86,6 +86,14 @@ bool SerialProtocol::poll(Cmd& x) {
         x.type = STATUS;
         return true;
       }
+      // GET_SETTINGS: devolve SETTINGS,... com o que esta em vigor. Existe
+      // porque um ajuste pelo menu do OLED nao deixava rastro no Pi: em
+      // 24/09/2026 um SERVO TRIM "salvo" nao tinha sido salvo, e so deu
+      // para descobrir medindo o efeito com varredura.
+      if (!strcmp(buf, "GET_SETTINGS")) {
+        x.type = GET_SETTINGS;
+        return true;
+      }
       if (!strcmp(buf, "SAVE_SETTINGS")) {
         x.type = SAVE;
         return true;

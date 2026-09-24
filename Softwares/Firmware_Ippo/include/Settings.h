@@ -25,6 +25,8 @@ struct SettingsData {
   // Graus fisicos somados a todo comando do servo (ver Config.h).
   // Chave nova em NVS: robo sem ela recebe o default, sem mudar versao.
   float servoTrim;
+  // Perfil de velocidade do seguidor (ver Config.h). Chave nova em NVS.
+  uint8_t speedProfile;
 };
 
 class Settings {

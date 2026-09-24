@@ -77,6 +77,21 @@ float servoAngle = 0;
 // Aponta o servo: angulo do PROTOCOLO (0 = centro calibrado) + trim.
 // writeMicroseconds em vez de write(int): write arredondava para grau
 // inteiro, o que somava degraus de 1 grau a folga mecanica.
+// Uma linha com TODAS as configuracoes em vigor. Sai no boot, a pedido
+// (GET_SETTINGS) e depois de cada SALVAR -- assim o log do Pi registra
+// qualquer mudanca feita pelo menu, com hora.
+void imprimeSettings() {
+  const SettingsData& v = cfg.get();
+  Serial.printf(
+    "SETTINGS,kp=%.2f,ki=%.2f,kd=%.2f,ticks=%.1f,bcal=%.3f,maxmps=%.2f,"
+    "yaww=%.2f,stat=%d,kv=%.1f,limit=%d,wzacc=%.1f,halfl=%.4f,halfw=%.4f,"
+    "wheeld=%.4f,imuaxis=%u,imusign=%d,strim=%.2f,vperfil=%u\n",
+    v.kp, v.ki, v.kd, v.ticksRev, v.battCal, v.maxWheelMps,
+    v.yawEncoderWeight, v.staticPwm, v.kvPwm, v.pwmLimit, v.maxWzAccel,
+    v.halfL, v.halfW, v.wheelDiameter, v.imuYawAxis, v.imuYawSign,
+    v.servoTrim, v.speedProfile);
+}
+
 void servoAponta(float angulo) {
   const float fisico = constrain(angulo + 90.0f + cfg.get().servoTrim,
                                  0.0f, 180.0f);
@@ -503,6 +518,7 @@ void setup() {
     cfg.get().ticksRev,
     imu.state().yawAxis
   );
+  imprimeSettings();
 }
 
 void loop() {
@@ -527,6 +543,9 @@ void loop() {
       apply();
     } else if (s.type == SerialProtocol::SAVE) {
       Serial.println(cfg.save() ? "OK,SAVED" : "ERROR,SAVE");
+      imprimeSettings();
+    } else if (s.type == SerialProtocol::GET_SETTINGS) {
+      imprimeSettings();
     } else if (s.type == SerialProtocol::STATUS) {
       Serial.printf(
         "STATUS,IMU_%s,OLED_%s\n",
@@ -615,6 +634,7 @@ void loop() {
     apply();
     fb.beep(2200, 90);
     Serial.println(cfg.save() ? "OK,SAVED" : "ERROR,SAVE");
+    imprimeSettings();
   }
 
   if (menu.inTest() && !menu.motorTest() && !menu.servoTest()) {

@@ -15,6 +15,7 @@ class SerialProtocol {
     CONTROL_STATE,
     INFO,
     MODE_STATE,
+    GET_SETTINGS,
   };
 
   struct Cmd {

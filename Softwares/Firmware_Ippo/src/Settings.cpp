@@ -24,6 +24,7 @@ void Settings::defaults() {
   d.imuYawAxis = Config::IMU_YAW_AXIS_DEFAULT;
   d.imuYawSign = Config::IMU_YAW_SIGN_DEFAULT;
   d.servoTrim = Config::SERVO_TRIM_DEFAULT;
+  d.speedProfile = Config::SPEED_PROFILE_DEFAULT;
   dirty = true;
 }
 
@@ -65,6 +66,10 @@ void Settings::load() {
   d.imuYawAxis = p.getUChar("imuaxis", Config::IMU_YAW_AXIS_DEFAULT);
   d.imuYawSign = p.getChar("imusign", Config::IMU_YAW_SIGN_DEFAULT);
   d.servoTrim = p.getFloat("strim", Config::SERVO_TRIM_DEFAULT);
+  d.speedProfile = p.getUChar("vperfil", Config::SPEED_PROFILE_DEFAULT);
+  if (d.speedProfile >= Config::SPEED_PROFILE_COUNT) {
+    d.speedProfile = Config::SPEED_PROFILE_DEFAULT;
+  }
 
   // MIGRACAO. O flag "ok" so dizia "ja gravei alguma vez" -- sem versao,
   // mudar um default nunca chegava a um robo que ja tinha NVS gravada, e
@@ -87,6 +92,10 @@ void Settings::load() {
     d.staticPwm = Config::STATIC_PWM_DEFAULT;
     d.kvPwm = Config::KV_PWM_DEFAULT;
     d.pwmLimit = Config::PWM_LIMIT_DEFAULT;
+  }
+  if (ver < 4 && d.maxWheelMps > 1.0f) {
+    // v3 -> v4: teto por roda acima de 1 m/s nao protege nada.
+    d.maxWheelMps = Config::MAX_WHEEL_MPS;
   }
   if (ver < Config::SETTINGS_VERSION) {
     save();
@@ -119,6 +128,7 @@ bool Settings::save() {
   p.putUChar("imuaxis", d.imuYawAxis);
   p.putChar("imusign", d.imuYawSign);
   p.putFloat("strim", d.servoTrim);
+  p.putUChar("vperfil", d.speedProfile);
   p.putULong("ver", Config::SETTINGS_VERSION);
   p.end();
   dirty = false;

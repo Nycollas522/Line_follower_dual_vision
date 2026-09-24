@@ -635,6 +635,10 @@ line_follower_node:
     # 0.070. Segurar so pedidos >= 0.8 (heading da superior ~25 graus)
     # custa 17% do vx medio; segurar todos custava 24%, mesmas quinas.
     # 0.15 m deixava escapar duas quinas.
+    # So o HEADING da superior renova a memoria (24/09, corrida MEDIA):
+    # a curvatura dela e ruido na reta (mediana 3.3 1/m) e prendia o robo
+    # em v_min 86% do tempo de reta. Replay: vx na reta 0.096 -> 0.165,
+    # quinas protegidas iguais (14/25 -> 13/25 em v_min).
     brake_hold_m: 0.20
     brake_hold_max_s: 4.0
     brake_hold_min_severity: 0.8

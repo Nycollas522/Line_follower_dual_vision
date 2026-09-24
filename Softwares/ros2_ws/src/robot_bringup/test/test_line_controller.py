@@ -1636,3 +1636,16 @@ def test_freio_segurado_expira_pelo_tempo_sem_odometria():
         preview=good(heading=math.radians(70.0)))
     cmd = run(controller, reta, 2.0, start=104.0)   # sem odom
     assert cmd.vx > 0.10
+
+
+def test_curvatura_ruidosa_da_superior_nao_prende_o_robo_na_reta():
+    """Corrida MEDIA de 24/09: a curvatura da superior media ~3-6 1/m
+    numa reta (ruido) e renovava a memoria de freio -- 86% do tempo de
+    reta preso em v_min. So o heading pode alimentar a memoria."""
+    controller = make_controller(align_on_start=False, brake_hold_m=0.20)
+    reta = good(lateral=0.0, heading=0.0)
+    ruido = good(heading=0.0, curvature=6.0)   # severidade de curvatura 1.0
+    _anda(controller, reta, None, 3.0, 100.0)
+    _anda(controller, reta, ruido, 0.3, 103.0)     # um pico de ruido
+    cmd = _anda(controller, reta, None, 1.5, 103.3)  # some: nada segurado
+    assert cmd.vx > 0.15

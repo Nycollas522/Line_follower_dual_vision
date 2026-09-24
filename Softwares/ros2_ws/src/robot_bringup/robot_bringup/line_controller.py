@@ -292,6 +292,15 @@ class ControllerConfig:
     # Agora a maior severidade pedida pelo preview fica SEGURA ate o robo
     # andar brake_hold_m (odometria) desde a ultima vez que foi pedida.
     # O teto de tempo cobre odometria ausente. 0.0 desliga.
+    # SO O HEADING da superior alimenta a memoria (24/09/2026, corrida
+    # MEDIA de 3 min): a CURVATURA da superior e ruido na reta -- mediana
+    # 3.3 1/m, p90 5.9, numa reta de verdade -- e passava de 0.8 em 22%
+    # dos quadros de reta, renovando a memoria: 86% do tempo em reta o
+    # robo estava preso em v_min por ela ("lento na reta, boost depois da
+    # curva"). O heading da superior nao passa de 0.8 em reta nenhuma e
+    # marca 50-75 graus nas quebras. A curvatura continua freando AO VIVO
+    # -- sem ela nenhuma quina era feita devagar no replay. Replay dessa
+    # corrida: vx na reta 0.096 -> 0.165, quinas em v_min 14/25 -> 13/25.
     # So pedidos FORTES sao segurados (0.8 = heading da superior ~25
     # graus): segurar tambem os moderados custava 24% do vx medio no
     # replay da mesma corrida, contra 17% assim, com as mesmas quinas.
@@ -547,6 +556,20 @@ class FollowerController:
                 / cfg.ref_heading
             )
         return min(1.0, max(terms))
+
+    def _pedido_de_freio(self, preview: Observation | None) -> float:
+        """O que alimenta a memoria de freio: so o HEADING da superior.
+
+        Ver brake_hold_m em ControllerConfig: a curvatura da superior e
+        ruido na reta e prendia o robo em v_min.
+        """
+        cfg = self.config
+        if preview is None or not preview.heading_valid:
+            return 0.0
+        return min(
+            1.0,
+            cfg.preview_speed_gain * abs(preview.heading_error) / cfg.ref_heading,
+        )
 
     def _segura_freio(self, pedido: float) -> float:
         """Nivel de freio que o preview pediu ha menos de brake_hold_m.
@@ -1006,7 +1029,7 @@ class FollowerController:
             # quando a quebra chega; o freio que ele pediu continua.
             severity = max(
                 severity,
-                self._segura_freio(self._severidade_do_preview(preview_speed)),
+                self._segura_freio(self._pedido_de_freio(preview_speed)),
             )
             if self.state == State.DEGRADED:
                 # Evidencia fraca: anda no minimo e ignora o preview

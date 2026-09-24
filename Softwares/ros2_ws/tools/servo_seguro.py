@@ -21,6 +21,13 @@ Use assim em qualquer script que mexa no servo:
     trava_motores()      # levanta RuntimeError se nao conseguir travar
     ...                  # mexa o servo a vontade
     devolve()
+
+Se o script precisa de DETECCAO ou imagem de debug, use
+trava_motores(percepcao=True). O modo PARADO desliga a percepcao, e por
+isso ela e religada direto nos dois nos, com o modo continuando em PARADO.
+Colocar o modo em SEGUIDOR e desligar body_control depois seria uma
+corrida contra o mode_manager, que liga body_control nessa troca.
+devolve() desliga a percepcao de novo.
 """
 import subprocess
 import time
@@ -50,8 +57,13 @@ def _le(node, nome):
     return r.stdout.strip().split()[-1] if r.stdout.strip() else '?'
 
 
-def trava_motores():
+PERCEPCAO = ('/line_perception_bottom', '/line_perception_front')
+_percepcao_ligada = False
+
+
+def trava_motores(percepcao=False):
     """Garante que o corpo nao anda, e PROVA isso antes de devolver."""
+    global _percepcao_ligada
     # 1. Modo PARADO: o mode_manager desliga body_control e desarma.
     subprocess.run(['python3', '/home/bolt/ros2_ws/logs/modo.py', 'PARADO'],
                    capture_output=True, timeout=60)
@@ -61,14 +73,26 @@ def trava_motores():
     # 3. Cala o seguidor no /head/request, senao ele disputa o servo.
     _param('/line_follower_node', 'head_control_enabled', 'false')
 
-    # 4. CONFERE. Sem confirmacao, nao segue.
-    body = _le('/line_follower_node', 'body_control_enabled')
-    if body != 'False':
-        raise RuntimeError(
-            f'body_control_enabled={body}: nao consegui travar os motores. '
-            'ABORTANDO em vez de arriscar mover o robo.'
-        )
+    # 4. CONFERE, duas vezes com intervalo: um pedido atrasado do
+    #    mode_manager ainda poderia religar body_control logo depois.
+    for tentativa in range(2):
+        if tentativa:
+            time.sleep(2.0)
+        body = _le('/line_follower_node', 'body_control_enabled')
+        if body != 'False':
+            raise RuntimeError(
+                f'body_control_enabled={body}: nao consegui travar os '
+                'motores. ABORTANDO em vez de arriscar mover o robo.'
+            )
     print('motores travados (body_control_enabled=False, modo PARADO)')
+
+    # 5. So depois da trava provada: percepcao, se pedida.
+    if percepcao:
+        for no in PERCEPCAO:
+            if not _param(no, 'enabled', 'true'):
+                raise RuntimeError(f'nao consegui ligar a percepcao em {no}')
+        _percepcao_ligada = True
+        print('percepcao ligada nas duas cameras (modo segue PARADO)')
 
 
 def liga_autonomia(node, ligar=True):
@@ -84,7 +108,17 @@ def liga_autonomia(node, ligar=True):
         rclpy.spin_once(node, timeout_sec=0.05)
 
 
-def devolve():
-    """Devolve a autoridade da cabeca ao seguidor."""
+def devolve(percepcao=True):
+    """Devolve a autoridade da cabeca ao seguidor.
+
+    Com percepcao=True (padrao), tambem desliga a percepcao que
+    trava_motores(percepcao=True) tiver ligado, deixando o PARADO coerente.
+    """
+    global _percepcao_ligada
     _param('/line_follower_node', 'head_control_enabled', 'true')
     print('autoridade da cabeca devolvida (motores seguem travados)')
+    if percepcao and _percepcao_ligada:
+        for no in PERCEPCAO:
+            _param(no, 'enabled', 'false')
+        _percepcao_ligada = False
+        print('percepcao desligada de novo')

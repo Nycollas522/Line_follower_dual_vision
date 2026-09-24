@@ -10,10 +10,12 @@ bearing. Ou seja, com a cabeca parada a linha SAI do quadro em curva.
 Esta varredura mostra, na pratica, o que a cabeca alcanca em cada
 angulo -- util para decidir max_angle_deg e scan_amplitude_deg.
 
-SEGURANCA: nao move os motores. Publica so em /head/request. Mas o
-head_servo_node exige autonomia LIGADA para aceitar qualquer modo
-diferente de CENTER, entao este script liga a autonomia e a desliga no
-final. Rode com o robo em local seguro, ou com os motores sem tensao.
+SEGURANCA: o head_servo_node exige autonomia LIGADA para aceitar
+qualquer modo diferente de CENTER, entao este script liga a autonomia e
+a desliga no final. Autonomia ligada com o modo em SEGUIDOR faz o robo
+ANDAR (incidente de 21/09/2026), por isso o script chama
+logs/servo_seguro.py::trava_motores() antes e aborta se nao conseguir
+provar que body_control_enabled=False.
 
 AUTORIDADE: com a autonomia ligada o line_follower_node tambem publica
 em /head/request, a ~50 Hz -- muito mais rapido que a varredura, entao
@@ -45,6 +47,12 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Float32
+
+# A trava mora em logs/ no robo e em tools/ no repositorio.
+for _pasta in ('logs', 'tools'):
+    sys.path.insert(0, os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), '..', _pasta))
+from servo_seguro import trava_motores  # noqa: E402
 
 SENSOR = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
                     history=HistoryPolicy.KEEP_LAST, depth=1)
@@ -131,6 +139,8 @@ class Panorama(Node):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    # Antes de ligar a autonomia: PARADO + body_control=False, conferido.
+    trava_motores()
     rclpy.init()
     node = Panorama()
     try:

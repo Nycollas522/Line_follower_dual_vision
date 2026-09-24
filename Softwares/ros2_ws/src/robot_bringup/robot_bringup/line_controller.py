@@ -584,6 +584,17 @@ class FollowerController:
         cfg = self.config
         if self._elapsed() > cfg.align_timeout:
             return True
+        # Progresso COM SINAL, no sentido do alvo: girar para o lado
+        # errado (odom com sinal trocado, roda patinando ao contrario)
+        # nao pode contar como alinhamento cumprido -- sai pelo timeout.
+        alvo = abs(self._align_alvo)
+        progresso = math.copysign(1.0, self._align_alvo) * self._align_girado
+        # Teto de rotacao ANTES da visao: e justamente com a visao ainda
+        # dizendo "torto" (linha errada, reflexo) que o robo giraria alem
+        # da conta. Antes este teste ficava depois do retorno da visao e
+        # depois de um teste mais fraco, e nunca tinha efeito.
+        if progresso >= cfg.align_overshoot_guard * alvo:
+            return True
         # A VISAO decide sempre que estiver disponivel. Foi um erro
         # anterior tratar a estimativa de rotacao como criterio
         # primario: com atrito estatico o robo nao girava, a estimativa
@@ -592,10 +603,7 @@ class FollowerController:
         if obs.valid and obs.heading_valid:
             return abs(obs.heading_error) <= math.radians(cfg.align_exit_deg)
         # Sem visao, resta a rotacao MEDIDA pelos encoders.
-        if abs(self._align_girado) >= abs(self._align_alvo):
-            return True
-        limite = cfg.align_overshoot_guard * abs(self._align_alvo)
-        return abs(self._align_girado) >= limite
+        return progresso >= alvo
 
     def _wz_limit(self, vx: float) -> float:
         """Teto de giro que o chassi aguenta a esta velocidade linear."""
@@ -637,11 +645,17 @@ class FollowerController:
 
         # Feedforward geometrico da propria camera inferior: para seguir
         # um arco de curvatura kappa a velocidade v, omega = v * kappa.
-        if obs.curvature_valid:
-            # Curvatura ATRASADA: a que esta sob o robo agora. A crua,
-            # que olha a frente, e para a CABECA antecipar -- nao para o
-            # corpo virar cedo.
-            wz += -cfg.k_feedforward * self._curvature_delayed * vx
+        # Curvatura ATRASADA: a que esta sob o robo agora. A crua, que
+        # olha a frente, e para a CABECA antecipar -- nao para o corpo
+        # virar cedo.
+        #
+        # SEM porta em obs.curvature_valid: a validade ja viaja no
+        # historico (o filtro decai a zero quando a leitura e invalida, e
+        # e esse zero que e atrasado). A porta usava a validade do frame
+        # ATUAL, ~0,4 s a frente: na saida de uma curva, a quebra seguinte
+        # invalidava o frame e zerava o feedforward da curva que o robo
+        # ainda estava fazendo.
+        wz += -cfg.k_feedforward * self._curvature_delayed * vx
 
         # Feedforward de preview: entra saturado e so quando a cabeca esta
         # centrada. Nunca vira a referencia de direcao. Dois termos,
@@ -991,8 +1005,6 @@ class FollowerController:
             # Perda confirmada: nao avanca mais. Gira devagar para o lado
             # por onde a linha saiu e usa a camera superior para varrer.
             self._vx = self._ramp(self._vx, 0.0, cfg.decel, dt)
-            target_wz = -self._last_side * cfg.recovery_wz
-            self._wz = self._ramp(self._wz, target_wz, cfg.wz_accel, dt)
             command.severity = 1.0
             command.wz_limit = cfg.recovery_wz
 
@@ -1001,17 +1013,17 @@ class FollowerController:
             else:
                 command.head_mode = HeadMode.CENTER
 
+            # O LADO e decidido ANTES do giro deste tick (antes o giro
+            # usava o lado do tick anterior).
             if preview_usable and cfg.preview_recovery_enabled:
                 # A camera superior achou a linha. Ela decide o LADO do
-                # giro, nunca a magnitude. Se a cabeca estava girada, e o
-                # proprio angulo do pan que diz o lado -- isso dispensa
-                # conhecer o FOV horizontal, que nao esta calibrado.
-                if abs(servo_angle_deg) > cfg.preview_center_tol_deg:
-                    self._last_side = 1.0 if servo_angle_deg >= 0.0 else -1.0
-                else:
-                    self._last_side = (
-                        1.0 if preview.lateral_error >= 0.0 else -1.0
-                    )
+                # giro, nunca a magnitude. _preview_side acabou de ser
+                # calculado neste update: angulo do pan com a cabeca
+                # girada, lateral PROJETADO pelo heading com ela centrada.
+                # Antes este ramo usava o lateral CRU, que na quebra e
+                # ruido (-0,5 mm com heading +49,6 graus) e mandava girar
+                # para o lado errado.
+                self._last_side = self._preview_side
                 # Para de varrer e segura onde encontrou, para o robo girar
                 # em direcao a linha em vez de perseguir a cabeca.
                 command.head_mode = HeadMode.HOLD
@@ -1027,6 +1039,9 @@ class FollowerController:
                 # na quebra vem de 1-2 bandas. So o lado; a magnitude
                 # continua sendo recovery_wz.
                 self._last_side = self._preview_side
+
+            target_wz = -self._last_side * cfg.recovery_wz
+            self._wz = self._ramp(self._wz, target_wz, cfg.wz_accel, dt)
 
         command.vx = self._vx
         command.wz = self._wz

@@ -13,6 +13,20 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Float32
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from servo_seguro import trava_motores, devolve
+
+# TRAVA OS MOTORES ANTES DE QUALQUER COISA. Mexer o servo exige ligar a
+# autonomia, e em 21/09/2026 isso fez o robo ANDAR porque o modo estava
+# em SEGUIDOR. trava_motores() levanta excecao se nao conseguir provar
+# que o corpo esta desarmado.
+# percepcao=True porque o teste le as deteccoes; devolve(percepcao=False)
+# porque aqui quem mira a cabeca E o seguidor -- o corpo segue travado.
+trava_motores(percepcao=True)
+devolve(percepcao=False)
+
 C = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                history=HistoryPolicy.KEEP_LAST, depth=10)
 S = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -74,3 +88,4 @@ b.data = False
 for _ in range(15):
     en.publish(b); rclpy.spin_once(n, timeout_sec=0.05)
 n.destroy_node(); rclpy.shutdown()
+devolve()   # desliga a percepcao que a trava ligou

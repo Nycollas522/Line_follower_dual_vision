@@ -10,6 +10,17 @@ from line_msgs.msg import HeadRequest
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from servo_seguro import trava_motores, devolve
+
+# TRAVA OS MOTORES ANTES DE QUALQUER COISA. Mexer o servo exige ligar a
+# autonomia, e em 21/09/2026 isso fez o robo ANDAR porque o modo estava
+# em SEGUIDOR. trava_motores() levanta excecao se nao conseguir provar
+# que o corpo esta desarmado.
+# Tambem cala o seguidor no /head/request, senao ele disputa o servo.
+trava_motores()
+
 C = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                history=HistoryPolicy.KEEP_LAST, depth=10)
 SEG = float(sys.argv[1]) if len(sys.argv) > 1 else 60.0
@@ -24,11 +35,7 @@ while time.time() < fim and en.get_subscription_count() < 3:
 # puxado para o alvo dele. Foi exatamente isso que contaminou a
 # primeira versao deste teste e me fez concluir, errado, que o servo
 # nao girava a camera.
-import subprocess
-subprocess.run(['ros2','param','set','/line_follower_node',
-                'head_control_enabled','false'],
-               capture_output=True, timeout=15)
-print('line_follower_node calado (head_control_enabled=false)')
+# trava_motores() ja calou o seguidor (head_control_enabled=false).
 b = Bool(); b.data = True
 for _ in range(15):
     en.publish(b); rclpy.spin_once(n, timeout_sec=0.05)
@@ -45,9 +52,6 @@ while time.time() - t0 < SEG:
 b.data = False
 for _ in range(15):
     en.publish(b); rclpy.spin_once(n, timeout_sec=0.05)
-subprocess.run(['ros2','param','set','/line_follower_node',
-                'head_control_enabled','true'],
-               capture_output=True, timeout=15)
-print('autoridade da cabeca devolvida ao seguidor')
+devolve()
 n.destroy_node(); rclpy.shutdown()
 print('parado')

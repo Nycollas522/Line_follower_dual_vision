@@ -1171,8 +1171,36 @@ def test_visao_encerra_o_alinhamento_mesmo_com_alvo_grande():
 def test_sem_visao_usa_o_giro_medido():
     controller = make_controller(align_on_start=True, align_timeout=30.0)
     run(controller, good(heading=math.radians(20.0)), 0.2)
-    # cego, mas girando de verdade a 0.9 rad/s
-    cmd = run(controller, lost(), 2.0, start=101.0, yaw_rate=0.9)
+    # cego, mas girando de verdade a 0.9 rad/s PARA A DIREITA (heading
+    # +20 graus pede wz negativo). Este teste usava +0.9 -- o sentido
+    # errado -- e so passava porque o criterio comparava abs().
+    cmd = run(controller, lost(), 2.0, start=101.0, yaw_rate=-0.9)
+    assert cmd.state != State.ALIGNING
+
+
+def test_girar_para_o_lado_errado_nao_conta_como_alinhado():
+    """Odom com sinal trocado ou roda patinando ao contrario.
+
+    O alinhamento so pode terminar pelo giro NO SENTIDO do alvo; girando
+    ao contrario, quem encerra e o timeout.
+    """
+    controller = make_controller(align_on_start=True, align_timeout=30.0)
+    run(controller, good(heading=math.radians(20.0)), 0.2)
+    cmd = run(controller, lost(), 2.0, start=101.0, yaw_rate=+0.9)
+    assert cmd.state == State.ALIGNING
+
+
+def test_guarda_de_sobregiro_vale_mesmo_com_visao():
+    """A visao insiste em "torto" (linha errada, reflexo) e o robo ja
+    girou muito alem do alvo travado: a guarda encerra o giro. Antes ela
+    ficava depois do retorno da visao e nunca tinha efeito."""
+    controller = make_controller(
+        align_on_start=True, align_timeout=30.0, align_overshoot_guard=1.25
+    )
+    torto = good(heading=math.radians(20.0))
+    run(controller, torto, 0.2)
+    # 20 graus x 1.25 = 25 graus; a 0.9 rad/s isso leva ~0.5 s
+    cmd = run(controller, torto, 1.5, start=101.0, yaw_rate=-0.9)
     assert cmd.state != State.ALIGNING
 
 
@@ -1516,3 +1544,46 @@ def test_ganho_escala_a_mira():
     assert ctrl._mira_da_cabeca(_obs_mira(heading_deg=24.0)) == pytest.approx(
         cheio / 2.0, abs=0.05
     )
+
+
+# ----------------------------------------------------------------------
+# Revisao de 24/09/2026
+# ----------------------------------------------------------------------
+def test_recuperacao_usa_o_lado_projetado_da_superior():
+    """Numeros medidos na quebra a direita: lateral da superior -0,5 mm
+    (ruido) com heading +49,6 graus. Projetado, o lado e a DIREITA. O
+    ramo da recuperacao usava o lateral cru e girava para a esquerda."""
+    controller = make_controller(
+        preview_recovery_enabled=True, align_on_start=False
+    )
+    # a inferior viu a linha sair pela ESQUERDA por ultimo
+    run(controller, good(lateral=-0.04), 2.0)
+    quebra = good(lateral=-0.0005, heading=math.radians(49.6))
+    command = run(controller, lost(), 1.0, start=102.0, preview=quebra)
+    assert command.state == State.RECOVERING
+    assert command.wz < 0.0      # direita, onde a quebra esta
+
+
+def _sem_curvatura_valida() -> Observation:
+    obs = good(lateral=0.0, heading=0.0, curvature=0.0)
+    obs.curvature_valid = False
+    return obs
+
+
+def test_feedforward_nao_cai_quando_o_frame_a_frente_perde_a_curvatura():
+    """Saida da curva: o frame atual ja ve a quebra seguinte e perde a
+    curvatura, mas o robo ainda esta na curva de antes. O feedforward
+    atrasado tem de continuar -- a validade viaja no historico."""
+    controller = make_controller(
+        curvature_eval_distance_m=0.085, k_lateral=0.0, k_heading=0.0,
+        k_damping=0.0, heading_gain_scheduling=False, align_on_start=False,
+    )
+    wz = _entra_na_curva(controller, curvatura=5.0, segundos=4.0)
+    antes = wz[-1]
+    assert antes < -0.05
+    depois = None
+    for i in range(5):     # 0,1 s, bem menos que o atraso de percurso
+        depois = controller.update(
+            now=204.0 + i * DT, enabled=True, obs=_sem_curvatura_valida(),
+        ).wz
+    assert depois < 0.8 * antes  # continua girando (wz negativo) quase igual

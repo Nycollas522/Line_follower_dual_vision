@@ -56,8 +56,11 @@ class ModeManagerNode(Node):
         )
 
         self._clientes: dict[str, object] = {}
-        # Pedidos que ainda nao chegaram ao destino, por no+parametro.
+        # Pedidos ainda NAO CONFIRMADOS pelo destino, por no+parametro.
+        # Guarda sempre o valor mais recente pedido.
         self._pendentes: dict[tuple, bool] = {}
+        # Pedidos enviados aguardando resposta: chave -> (valor, instante).
+        self._em_voo: dict[tuple, tuple[bool, float]] = {}
         self._modo = -1
         # Republica o estado periodicamente: quem subir depois (e o
         # proprio ESP32, se reiniciar) precisa descobrir o modo atual
@@ -91,10 +94,16 @@ class ModeManagerNode(Node):
 
         Agora o pedido fica pendente e e repetido pelo temporizador ate
         o no aparecer. Desligar nunca pode depender de sorte de timing.
+
+        E so SAI da fila quando o destino responde successful=True
+        (24/09/2026): antes saia logo depois do call_async, e uma resposta
+        perdida -- no reiniciando, servico que sumiu entre o 'ready' e a
+        chamada -- deixava body_control ligado sem aviso nenhum.
         """
+        chave = (node_name, param)
+        self._pendentes[chave] = valor
         cli = self._cliente(node_name)
         if not cli.service_is_ready():
-            self._pendentes[(node_name, param)] = valor
             self.get_logger().warn(
                 f'{node_name} ainda sem servico de parametros; '
                 f'{param}={valor} fica pendente e sera repetido.',
@@ -110,16 +119,56 @@ class ModeManagerNode(Node):
                 ),
             )
         ]
-        cli.call_async(pedido)
-        self._pendentes.pop((node_name, param), None)
+        self._em_voo[chave] = (valor, self._agora())
+        futuro = cli.call_async(pedido)
+        futuro.add_done_callback(
+            lambda f, chave=chave, valor=valor: self._confirmado(
+                chave, valor, f
+            )
+        )
+
+    def _confirmado(self, chave: tuple, valor: bool, futuro) -> None:
+        """Resposta do set_parameters: so aqui o pedido sai da fila."""
+        if self._em_voo.get(chave, (None,))[0] == valor:
+            self._em_voo.pop(chave, None)
+        try:
+            resposta = futuro.result()
+            ok = bool(resposta and resposta.results
+                      and resposta.results[0].successful)
+            motivo = '' if ok else (
+                resposta.results[0].reason
+                if resposta and resposta.results else 'sem resposta'
+            )
+        except Exception as erro:  # noqa: BLE001 - qualquer falha reenfileira
+            ok, motivo = False, repr(erro)
+        if ok:
+            # Um pedido NOVO para a mesma chave (outro valor) continua na
+            # fila: so remove se o confirmado e o mais recente.
+            if self._pendentes.get(chave) == valor:
+                self._pendentes.pop(chave, None)
+            return
+        self.get_logger().error(
+            f'{chave[0]} recusou {chave[1]}={valor} ({motivo}); '
+            'sera repetido.'
+        )
+
+    def _agora(self) -> float:
+        return self.get_clock().now().nanoseconds * 1e-9
 
     def _tenta_pendentes(self) -> None:
-        """Repete o que nao chegou. Roda pelo temporizador de estado."""
-        for (node_name, param), valor in list(self._pendentes.items()):
-            cli = self._cliente(node_name)
-            if cli.service_is_ready():
+        """Repete o que nao foi confirmado. Roda pelo temporizador."""
+        agora = self._agora()
+        for chave, valor in list(self._pendentes.items()):
+            em_voo = self._em_voo.get(chave)
+            # Ainda esperando a resposta do mesmo valor: da 3 s antes de
+            # considerar perdido e repetir.
+            if em_voo and em_voo[0] == valor and agora - em_voo[1] < 3.0:
+                continue
+            node_name, param = chave
+            if self._cliente(node_name).service_is_ready():
                 self.get_logger().info(
-                    f'{node_name} apareceu; aplicando {param}={valor}.'
+                    f'{node_name}: repetindo {param}={valor} (sem '
+                    'confirmacao ainda).'
                 )
                 self._set_bool(node_name, param, valor)
 

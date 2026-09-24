@@ -32,7 +32,9 @@ from servo_seguro import trava_motores, liga_autonomia, devolve
 # autonomia, e em 21/09/2026 isso fez o robo ANDAR porque o modo estava
 # em SEGUIDOR. trava_motores() levanta excecao se nao conseguir provar
 # que o corpo esta desarmado.
-trava_motores()
+# percepcao=True: PARADO desliga a percepcao, e sem ela este script
+# nao recebe deteccao nem imagem de debug.
+trava_motores(percepcao=True)
 rclpy.init()
 n = Node('olha')
 br = CvBridge()

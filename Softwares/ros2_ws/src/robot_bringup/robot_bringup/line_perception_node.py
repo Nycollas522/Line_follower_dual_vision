@@ -255,6 +255,11 @@ class LinePerceptionNode(Node):
     # ------------------------------------------------------------------
     def _aplica_enabled(self, ligado: bool) -> None:
         if ligado and self._image_sub is None:
+            # O rastreio de antes do desligamento nao vale mais: em PARADO
+            # o robo costuma ser reposicionado a mao, e a predicao velha
+            # (com _miss_count parado em zero) puxaria a busca para onde a
+            # linha ESTAVA, favorecendo um reflexo perto dali.
+            self.detector.reset()
             self._image_sub = self.create_subscription(
                 Image, self._image_topic, self._on_image, sensor_qos()
             )

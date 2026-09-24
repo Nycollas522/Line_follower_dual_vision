@@ -226,6 +226,12 @@ class MotorSerialNode(Node):
         port = str(self.get_parameter('port').value)
         baudrate = int(self.get_parameter('baudrate').value)
         self.serial_crc = bool(self.get_parameter('serial_crc').value)
+        # Inicio do no, para a carencia de desligamento. TEM de ser aqui:
+        # criado so no primeiro pedido, a carencia contava a partir DELE
+        # -- um pedido legitimo horas depois do boot era ignorado ("no
+        # ar ha 0s"), e dois disparos espurios separados por mais que a
+        # carencia desligavam o Pi.
+        self._t0_node = time.monotonic()
         self.shutdown_grace = float(
             self.get_parameter('shutdown_grace').value
         )
@@ -378,6 +384,15 @@ class MotorSerialNode(Node):
 
     # ------------------------------------------------------------------
     def _clamp_twist(self, msg: Twist):
+        # NaN/inf viram PARADA. max(-l, min(l, nan)) devolve +l -- um
+        # comando NaN saia daqui como velocidade maxima.
+        valores = (msg.linear.x, msg.linear.y, msg.angular.z)
+        if not all(math.isfinite(v) for v in valores):
+            self.get_logger().error(
+                f'Twist nao finito {valores}; enviando parada.',
+                throttle_duration_sec=1.0,
+            )
+            return (0.0, 0.0, 0.0)
         return (
             max(-self.max_vx, min(self.max_vx, msg.linear.x)),
             max(-self.max_vy, min(self.max_vy, msg.linear.y)),
@@ -495,10 +510,10 @@ class MotorSerialNode(Node):
         head = fields[0]
 
         if fields == ['MENU', 'SHUTDOWN_REQ']:
-            # ETAPA 1: SO REGISTRA. Nao desliga nada, e nao existe regra
-            # de sudoers instalada.
+            # REGISTRA SEMPRE e so desliga depois da carencia de boot
+            # (shutdown_grace). Requer /etc/sudoers.d/robo-poweroff.
             #
-            # POR QUE ASSIM: a primeira versao desligava de verdade e o
+            # POR QUE O REGISTRO: a primeira versao desligava de verdade e o
             # Pi passou a desligar sozinho. O caminho de confirmacao que
             # eu escrevi no firmware era INALCANCAVEL (ficava numa cadeia
             # else-if depois do ramo que captura toda pressao longa),
@@ -513,11 +528,8 @@ class MotorSerialNode(Node):
             # o relogio de epoca (1.79e9 s), inutil para correlacionar
             # com "ha quanto tempo o robo esta ligado" -- que e
             # exatamente o que este log existe para responder.
-            import time as _t
-            agora = _t.monotonic()
-            inicio = getattr(self, '_t0_node', None)
-            if inicio is None:
-                inicio = self._t0_node = agora
+            agora = time.monotonic()
+            inicio = self._t0_node
             anterior = getattr(self, '_ultimo_shutdown_req', None)
             self._ultimo_shutdown_req = agora
             self._n_shutdown_req = getattr(self, '_n_shutdown_req', 0) + 1

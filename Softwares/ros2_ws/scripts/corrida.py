@@ -23,6 +23,7 @@ Uso:
 """
 import csv
 import os
+import signal
 import statistics as st
 import sys
 import time
@@ -33,6 +34,7 @@ from line_msgs.msg import LineDetection
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String, Float32
 
@@ -69,6 +71,11 @@ class Corrida(Node):
             lambda m: setattr(self, 'modo', m.data), CTRL
         )
         self.b = None
+        # Uma linha do CSV por FRAME da inferior, nao por callback: o
+        # spin_once acorda com odom, rodas, servo e bateria tambem, e
+        # gravar a cada acordada repetia o mesmo frame varias vezes,
+        # distorcendo porcentagens e duracoes de perda.
+        self.b_novo = False
         self.servo = 0.0
         self.vx = 0.0
         self.wz = 0.0
@@ -77,7 +84,7 @@ class Corrida(Node):
         self.owz = 0.0
         self.rodas = [0.0, 0.0, 0.0, 0.0]
         self.create_subscription(LineDetection, '/line/detection',
-                                 lambda m: setattr(self, 'b', m), CTRL)
+                                 self._det, CTRL)
         # A camera superior alimenta o freio antecipado e a recuperacao.
         # Sem grava-la nao da para separar o que ela causou do que a
         # pista causou -- as quebras nao se repetem iguais entre corridas.
@@ -97,6 +104,10 @@ class Corrida(Node):
         self.create_subscription(Float32, '/battery/voltage',
                                  lambda m: setattr(self, 'volts', m.data),
                                  CTRL)
+
+    def _det(self, m):
+        self.b = m
+        self.b_novo = True
 
     def _tw(self, m):
         self.vx = m.linear.x
@@ -152,8 +163,10 @@ class Corrida(Node):
             )
 
     def enable(self, valor):
+        # So LIGAR espera os assinantes. Desligar publica na hora: se
+        # faltar um assinante, esperar 5s aqui e deixar o robo andando.
         fim = time.time() + 5.0
-        while (time.time() < fim
+        while (valor and time.time() < fim
                and self.en.get_subscription_count() < 3):
             rclpy.spin_once(self, timeout_sec=0.05)
         msg = Bool()
@@ -163,7 +176,7 @@ class Corrida(Node):
             rclpy.spin_once(self, timeout_sec=0.05)
 
 
-def relata_percepcao(linhas, hz):
+def relata_percepcao(linhas):
     ok = [r for r in linhas if r['valid']]
     perdas = len(linhas) - len(ok)
     print(f'\namostras {len(linhas)}  validas {len(ok)} '
@@ -177,20 +190,21 @@ def relata_percepcao(linhas, hz):
               f'(vies {st.mean(r["lat_mm"] for r in ok):+.2f})')
         print(f'conf media {st.mean(r["conf"] for r in ok):.3f}  '
               f'bandas {st.mean(r["bandas"] for r in ok):.2f}')
+    # Duracao pelo relogio (coluna t), nao por contagem de linhas: a
+    # taxa de frames nao e constante e a contagem nao vira segundos.
     seq = []
-    cur = 0
+    ini = None
     for r in linhas:
-        if not r['valid']:
-            cur += 1
-        else:
-            if cur:
-                seq.append(cur)
-            cur = 0
-    if cur:
-        seq.append(cur)
+        if not r['valid'] and ini is None:
+            ini = r['t']
+        elif r['valid'] and ini is not None:
+            seq.append(r['t'] - ini)
+            ini = None
+    if ini is not None:
+        seq.append(linhas[-1]['t'] - ini)
     if seq:
         print(f'episodios de perda: {len(seq)}  '
-              f'duracoes(s): {sorted(round(d / hz, 2) for d in seq)}')
+              f'duracoes(s): {sorted(round(d, 2) for d in seq)}')
 
 
 def relata_preview(linhas):
@@ -297,8 +311,35 @@ def relata_atuacao(linhas):
               'escorregamento ou carga, nao mau contato')
 
 
+def _sigterm(*_):
+    raise KeyboardInterrupt
+
+
+def _tenta(descricao, funcao):
+    """Roda um passo do desligamento sem deixar a falha pular os outros."""
+    try:
+        funcao()
+    except Exception as erro:  # noqa: BLE001 -- desligar vem antes de tudo
+        print(f'!!! FALHOU: {descricao}: {erro!r}')
+        print('!!! CONFIRA O ROBO: aperte o botao do ESP32.')
+
+
+def _publica_parado(node):
+    parado = String()
+    parado.data = 'PARADO'
+    for _ in range(20):
+        node.modo_pub.publish(parado)
+        rclpy.spin_once(node, timeout_sec=0.05)
+
+
 def main():
-    rclpy.init()
+    # SEM os handlers de sinal do rclpy: o dele trata o Ctrl-C fechando o
+    # contexto ANTES do finally, e ai enable(False) e PARADO lancavam
+    # RCLError e nunca saiam -- o robo ficava armado em SEGUIDOR, andando
+    # (reproduzido em 24/09/2026). Aqui o Ctrl-C vira KeyboardInterrupt
+    # comum e o contexto continua valido para desligar.
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+    signal.signal(signal.SIGTERM, _sigterm)
     node = Corrida()
     linhas = []
     try:
@@ -309,10 +350,12 @@ def main():
               'mao no botao do ESP32 <<<')
         node.enable(True)
         t0 = time.time()
+        node.b_novo = False
         while time.time() - t0 < DURACAO:
             rclpy.spin_once(node, timeout_sec=0.02)
-            if node.b is None:
+            if not node.b_novo:
                 continue
+            node.b_novo = False
             linha = {
                 't': round(time.time() - t0, 3),
                 'valid': int(node.b.valid),
@@ -345,19 +388,16 @@ def main():
             for nome, valor in zip(RODAS, node.rodas):
                 linha[nome] = round(valor, 4)
             linhas.append(linha)
+    except KeyboardInterrupt:
+        print('\n>>> INTERROMPIDO <<<')
     finally:
         print('>>> DESLIGANDO AUTONOMIA <<<')
-        node.enable(False)
-        for _ in range(20):
-            rclpy.spin_once(node, timeout_sec=0.05)
+        _tenta('desligar autonomia', lambda: node.enable(False))
         # Volta o modo para PARADO: deixar SEGUIDOR ligado significa
         # deixar body_control_enabled true, e qualquer coisa que publique
-        # em /cmd_vel_auto depois disso move o robo.
-        parado = String()
-        parado.data = 'PARADO'
-        for _ in range(20):
-            node.modo_pub.publish(parado)
-            rclpy.spin_once(node, timeout_sec=0.05)
+        # em /cmd_vel_auto depois disso move o robo. Roda mesmo que o
+        # passo anterior tenha falhado.
+        _tenta('voltar o modo para PARADO', lambda: _publica_parado(node))
         node.destroy_node()
         rclpy.shutdown()
 
@@ -370,7 +410,7 @@ def main():
         escritor.writeheader()
         escritor.writerows(linhas)
 
-    relata_percepcao(linhas, len(linhas) / DURACAO)
+    relata_percepcao(linhas)
     relata_preview(linhas)
     relata_atuacao(linhas)
     print(f'\nCSV em {CSV}')

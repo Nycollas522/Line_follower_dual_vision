@@ -200,7 +200,15 @@ class Corrida(Node):
             rclpy.spin_once(self, timeout_sec=0.05)
 
 
+def _so_quadros_novos(linhas):
+    """Percepcao se mede so nos quadros novos (det_nova=1)."""
+    if linhas and 'det_nova' in linhas[0]:
+        return [r for r in linhas if r['det_nova']]
+    return linhas
+
+
 def relata_percepcao(linhas):
+    linhas = _so_quadros_novos(linhas)
     ok = [r for r in linhas if r['valid']]
     perdas = len(linhas) - len(ok)
     print(f'\namostras {len(linhas)}  validas {len(ok)} '
@@ -233,6 +241,7 @@ def relata_percepcao(linhas):
 
 def relata_preview(linhas):
     """A camera superior: ela viu a quebra antes da inferior?"""
+    linhas = _so_quadros_novos(linhas)
     ok = [r for r in linhas if r['f_valid']]
     if not ok:
         print('\nPREVIEW: camera superior sem deteccao valida na corrida.')
@@ -377,13 +386,23 @@ def main():
         node.enable(True)
         t0 = time.time()
         node.b_novo = False
+        ultima = 0.0
         while time.time() - t0 < DURACAO:
             rclpy.spin_once(node, timeout_sec=0.02)
-            if not node.b_novo:
+            agora = time.time() - t0
+            # Uma linha por quadro NOVO da inferior. Sem quadro novo por
+            # 50 ms (percepcao desligada -- ex.: B1 longo pos o modo em
+            # PARADO), grava mesmo assim, com det_nova=0: a atuacao
+            # (odom, rodas) continua aparecendo, e e ali que se ve o robo
+            # parar. Relatorios de percepcao usam so det_nova=1.
+            if not node.b_novo and (node.b is None or agora - ultima < 0.05):
                 continue
+            det_nova = int(node.b_novo)
             node.b_novo = False
+            ultima = agora
             linha = {
-                't': round(time.time() - t0, 3),
+                't': round(agora, 3),
+                'det_nova': det_nova,
                 'valid': int(node.b.valid),
                 'conf': round(node.b.confidence, 3),
                 'lat_mm': round(node.b.lateral_error * 1000, 2),

@@ -84,7 +84,9 @@ def main():
     linha, quebras = [], []
     for k, r in enumerate(linhas):
         x, y, th = traj[k]
-        if r['valid'] and r['bandas'] >= 3:
+        # det_nova=0: linha gravada sem quadro novo (percepcao parada);
+        # o erro lateral e velho e nao pode ser projetado na pose atual.
+        if r['valid'] and r['bandas'] >= 3 and r.get('det_nova', 1):
             ly = -r['lat_mm'] / 1000.0     # +lat = linha a direita = -y
             linha.append((x + LOOK * math.cos(th) - ly * math.sin(th),
                           y + LOOK * math.sin(th) + ly * math.cos(th)))

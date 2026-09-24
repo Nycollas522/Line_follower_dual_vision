@@ -34,7 +34,9 @@ from geometry_msgs.msg import Twist
 from line_msgs.msg import LineDetection
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import (
+    DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
+)
 from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String, Float32
@@ -108,6 +110,14 @@ class Corrida(Node):
         # confunde com erro de controle. MEDIDO em 10/09/2026: a 11.13V
         # ele entregou 35% do vx pedido, contra 80% numa corrida anterior.
         self.volts = 0.0
+        # Perfil de velocidade em vigor (menu do ESP32 -> mode_manager).
+        # Numerico no CSV: 0 SUAVE, 1 MEDIA, 2 RAPIDA, -1 desconhecido.
+        self.perfil = -1
+        self.create_subscription(
+            String, '/robot/speed_profile', self._perfil,
+            QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                       history=HistoryPolicy.KEEP_LAST, depth=1,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.create_subscription(Float32, '/battery/voltage',
                                  lambda m: setattr(self, 'volts', m.data),
                                  CTRL)
@@ -115,6 +125,9 @@ class Corrida(Node):
     def _det(self, m):
         self.b = m
         self.b_novo = True
+
+    def _perfil(self, m):
+        self.perfil = {'SUAVE': 0, 'MEDIA': 1, 'RAPIDA': 2}.get(m.data, -1)
 
     def _tw(self, m):
         self.vx = m.linear.x
@@ -356,7 +369,9 @@ def main():
     try:
         node.seguidor()
         node.espera_percepcao()
-        print(f'modo {node.modo}, percepcao no ar (duas cameras).')
+        nomes = {0: 'SUAVE', 1: 'MEDIA', 2: 'RAPIDA'}
+        print(f'modo {node.modo}, percepcao no ar (duas cameras), '
+              f'perfil {nomes.get(node.perfil, "desconhecido")}.')
         print(f'>>> AUTONOMIA LIGADA por {DURACAO:.0f}s -- '
               'mao no botao do ESP32 <<<')
         node.enable(True)
@@ -385,6 +400,7 @@ def main():
                 'y_m': round(node.py, 4),
                 'yaw_deg': round(math.degrees(node.pyaw), 2),
                 'volts': round(node.volts, 2),
+                'perfil': node.perfil,
                 'servo': round(node.servo, 2),
             }
             frente = node.f

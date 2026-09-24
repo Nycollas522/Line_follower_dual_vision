@@ -44,7 +44,9 @@ import serial
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import (
+    DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
+)
 from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import Bool, Float32, Int32MultiArray, String
 from tf2_ros import TransformBroadcaster
@@ -176,6 +178,15 @@ class MotorSerialNode(Node):
         self.mode_req_pub = self.create_publisher(
             String, '/robot/mode_request', control_qos()
         )
+        # Perfil de velocidade escolhido no menu do ESP32 (vperfil na
+        # linha SETTINGS). TRANSIENT_LOCAL: o mode_manager pode subir
+        # depois deste no e ainda assim recebe o ultimo perfil.
+        self.speed_req_pub = self.create_publisher(
+            String, '/robot/speed_request',
+            QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                       history=HistoryPolicy.KEEP_LAST, depth=1,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL),
+        )
         self.servo_state_pub = self.create_publisher(
             Float32, '/servo/state', control_qos()
         )
@@ -206,6 +217,9 @@ class MotorSerialNode(Node):
         )
 
         self._open_serial()
+        # Registra no log as configuracoes que o ESP32 tem em vigor, sem
+        # esperar um reboot dele.
+        self._write('GET_SETTINGS\n')
 
         twist_period = 1.0 / max(
             1.0, float(self.get_parameter('twist_rate').value)
@@ -370,6 +384,20 @@ class MotorSerialNode(Node):
         except Exception as erro:
             self.get_logger().error(f'FALHA ao desligar: {erro}')
 
+    def _repassa_perfil(self, linha: str) -> None:
+        """Publica o perfil de velocidade (vperfil) para o mode_manager."""
+        campos = dict(
+            item.split('=', 1) for item in linha.split(',')[1:] if '=' in item
+        )
+        nome = {'0': 'SUAVE', '1': 'MEDIA', '2': 'RAPIDA'}.get(
+            campos.get('vperfil', '')
+        )
+        if nome is None:
+            return   # firmware sem perfil: fica o que o YAML definiu
+        msg = String()
+        msg.data = nome
+        self.speed_req_pub.publish(msg)
+
     def _on_mode(self, msg: String) -> None:
         """Confirma no OLED o modo que o Pi esta de fato executando."""
         if msg.data == self._modo_atual:
@@ -501,6 +529,13 @@ class MotorSerialNode(Node):
             return
         if line.startswith('STATUS') or line.startswith('OK,'):
             self.get_logger().info(f'ESP32: {line}')
+            return
+        if line.startswith('SETTINGS,'):
+            # Configuracoes em vigor no ESP32 (NVS). O firmware manda no
+            # boot, a pedido e depois de cada SALVAR -- entao este log
+            # registra, com hora, qualquer ajuste feito pelo menu do OLED.
+            self.get_logger().info(f'ESP32: {line}')
+            self._repassa_perfil(line)
             return
         if line.startswith('ERROR') or line.startswith('ERR,'):
             self.get_logger().error(f'ESP32: {line}')

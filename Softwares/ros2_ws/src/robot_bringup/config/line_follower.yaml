@@ -928,3 +928,25 @@ joy_teleop_node:
     # Cala o seguidor no /head/request para os dois nao disputarem o
     # servo -- armadilha ja documentada no README.
     take_head_authority: true
+
+# ---------------------------------------------------------------------
+#  GERENTE DE MODO -- modo (PARADO/SEGUIDOR/RC) e perfil de velocidade
+# ---------------------------------------------------------------------
+mode_manager_node:
+  ros__parameters:
+    # PERFIL DE VELOCIDADE, escolhido ANTES da corrida no menu do ESP32
+    # (CONFIG > VELOCIDADE > SALVAR). O firmware so guarda a escolha; os
+    # numeros ficam aqui, na ordem SUAVE, MEDIA, RAPIDA. Com o robo no
+    # boot sem firmware novo, vale o v_min/v_max do line_follower_node.
+    #
+    # Por que o v_min pesa mais que o v_max: nas corridas de 3 min de
+    # 24/09 (memoria de freio ligada) o robo passou 66-74% do tempo em
+    # v_min, e nunca chegou a 0.20. Subir so v_max quase nao muda a media.
+    #
+    # Risco: v_min e a velocidade na QUINA. Na corrida sem memoria de
+    # freio (corrida_20260924_112344) perderam a linha as quinas passadas
+    # a 0.128 e 0.180; passaram as de 0.107, 0.142 e 0.154. RAPIDA (0.11)
+    # esta nessa borda -- espere mais recuperacoes (0.3-0.5 s cada).
+    # SUAVE = o que rodou ate hoje. Regra: max(v_min) <= min(v_max).
+    perfil_v_min: [0.07, 0.09, 0.11]
+    perfil_v_max: [0.22, 0.28, 0.34]

@@ -23,11 +23,15 @@ import rclpy
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import (
+    DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
+)
 from std_msgs.msg import Bool, String
 
 IDLE, FOLLOWER, RC = 0, 1, 2
 NOMES = {IDLE: 'PARADO', FOLLOWER: 'SEGUIDOR', RC: 'RC'}
+# Perfis de velocidade, na ordem do menu do ESP32 (vperfil 0, 1, 2).
+PERFIS = ('SUAVE', 'MEDIA', 'RAPIDA')
 
 
 def control_qos() -> QoSProfile:
@@ -38,12 +42,27 @@ def control_qos() -> QoSProfile:
     )
 
 
+def latched_qos() -> QoSProfile:
+    """Ultimo valor fica guardado para quem assinar depois."""
+    return QoSProfile(
+        reliability=ReliabilityPolicy.RELIABLE,
+        history=HistoryPolicy.KEEP_LAST,
+        depth=1,
+        durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    )
+
+
 class ModeManagerNode(Node):
     """Traduz /robot/mode_request em parametros nos demais nos."""
 
     def __init__(self) -> None:
         super().__init__('mode_manager_node')
         self.declare_parameter('modo_inicial', IDLE)
+        # v_min/v_max do seguidor por perfil (SUAVE, MEDIA, RAPIDA). O
+        # perfil vem do menu do ESP32; os NUMEROS moram aqui, no YAML.
+        self.declare_parameter('perfil_v_min', [0.07, 0.09, 0.11])
+        self.declare_parameter('perfil_v_max', [0.22, 0.28, 0.34])
+        self._perfil: str | None = None
 
         self.estado_pub = self.create_publisher(
             String, '/robot/mode', control_qos()
@@ -53,6 +72,12 @@ class ModeManagerNode(Node):
         )
         self.create_subscription(
             String, '/robot/mode_request', self._on_request, control_qos()
+        )
+        self.perfil_pub = self.create_publisher(
+            String, '/robot/speed_profile', latched_qos()
+        )
+        self.create_subscription(
+            String, '/robot/speed_request', self._on_perfil, latched_qos()
         )
 
         self._clientes: dict[str, object] = {}
@@ -82,7 +107,10 @@ class ModeManagerNode(Node):
         return self._clientes[node_name]
 
     def _set_bool(self, node_name: str, param: str, valor: bool) -> None:
-        """Ajusta um parametro booleano; REENFILEIRA se o no nao respondeu.
+        self._set_param(node_name, param, bool(valor))
+
+    def _set_param(self, node_name: str, param: str, valor) -> None:
+        """Ajusta um parametro (bool ou float); REENFILEIRA se nao respondeu.
 
         POR QUE INSISTE (21/09/2026): a versao anterior pulava em
         silencio quando o servico de parametros ainda nao estava pronto.
@@ -111,14 +139,15 @@ class ModeManagerNode(Node):
             )
             return
         pedido = SetParameters.Request()
-        pedido.parameters = [
-            Parameter(
-                name=param,
-                value=ParameterValue(
-                    type=ParameterType.PARAMETER_BOOL, bool_value=valor
-                ),
+        if isinstance(valor, bool):
+            valor_ros = ParameterValue(
+                type=ParameterType.PARAMETER_BOOL, bool_value=valor
             )
-        ]
+        else:
+            valor_ros = ParameterValue(
+                type=ParameterType.PARAMETER_DOUBLE, double_value=float(valor)
+            )
+        pedido.parameters = [Parameter(name=param, value=valor_ros)]
         self._em_voo[chave] = (valor, self._agora())
         futuro = cli.call_async(pedido)
         futuro.add_done_callback(
@@ -170,7 +199,41 @@ class ModeManagerNode(Node):
                     f'{node_name}: repetindo {param}={valor} (sem '
                     'confirmacao ainda).'
                 )
-                self._set_bool(node_name, param, valor)
+                self._set_param(node_name, param, valor)
+
+    def _on_perfil(self, msg: String) -> None:
+        """Aplica o perfil de velocidade escolhido no menu do ESP32.
+
+        Chega a cada SETTINGS do firmware (boot, pedido do Pi e cada
+        SALVAR), entao o mesmo perfil costuma vir repetido: so age se
+        mudou. v_min antes de v_max, e a tabela e validada para que
+        qualquer v_min caiba sob qualquer v_max -- o seguidor recusa
+        v_min > v_max, e a troca e feita em dois pedidos.
+        """
+        nome = msg.data.strip().upper()
+        if nome not in PERFIS or nome == self._perfil:
+            return
+        v_min = list(self.get_parameter('perfil_v_min').value)
+        v_max = list(self.get_parameter('perfil_v_max').value)
+        if (len(v_min) != len(PERFIS) or len(v_max) != len(PERFIS)
+                or max(v_min) > min(v_max)):
+            self.get_logger().error(
+                f'perfil_v_min={v_min} / perfil_v_max={v_max} invalidos '
+                f'(3 valores cada, e max(v_min) <= min(v_max)); perfil '
+                f'{nome} ignorado.'
+            )
+            return
+        i = PERFIS.index(nome)
+        self._perfil = nome
+        self._set_param('line_follower_node', 'v_min', float(v_min[i]))
+        self._set_param('line_follower_node', 'v_max', float(v_max[i]))
+        estado = String()
+        estado.data = nome
+        self.perfil_pub.publish(estado)
+        self.get_logger().info(
+            f'Perfil de velocidade {nome}: v_min={v_min[i]:.3f} '
+            f'v_max={v_max[i]:.3f} m/s'
+        )
 
     def _on_request(self, msg: String) -> None:
         texto = msg.data.strip().upper()

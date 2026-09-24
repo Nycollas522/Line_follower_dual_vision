@@ -61,6 +61,29 @@ class JoyTeleopNode(Node):
         self.declare_parameter('deadman_button', -1)  # alternativa, se preferir
         self.declare_parameter('require_deadman', True)
 
+        # SINAIS INVERTIVEIS POR PARAMETRO.
+        #
+        # RELATADO em 21/09/2026: frente ia para tras, esquerda para a
+        # direita e R1 para a esquerda -- os TRES invertidos. A convencao
+        # de eixo do driver de joystick nao e estavel entre versoes de
+        # kernel e do pacote `joy`, entao fixar sinal no codigo garante
+        # que isso volte a acontecer. Aqui e parametro: se inverter de
+        # novo, troca no YAML sem recompilar nada.
+        #
+        # true = multiplica por -1.
+        self.declare_parameter('invert_vx', True)
+        self.declare_parameter('invert_wz', True)
+        self.declare_parameter('invert_vy', True)
+        self.declare_parameter('invert_servo', False)
+
+        # TURBO. Pedido do operador: um botao que da mais velocidade sem
+        # mudar o limite normal. Multiplica os limites enquanto segurado.
+        # O teto real continua sendo maxWheelMps do firmware (0.70 m/s);
+        # este fator so levanta o limite do teleop.
+        self.declare_parameter('turbo_button', 7)    # R2 como botao
+        self.declare_parameter('turbo_axis', -1)     # ou como eixo
+        self.declare_parameter('turbo_scale', 1.6)
+
         # --- limites ---
         self.declare_parameter('max_vx', 0.20)
         self.declare_parameter('max_vy', 0.15)
@@ -84,11 +107,13 @@ class JoyTeleopNode(Node):
         self.btn_right = int(get('button_strafe_right').value)
         self.deadman_axis = int(get('deadman_axis').value)
         self.deadman_button = int(get('deadman_button').value)
-        self.require_deadman = bool(get('require_deadman').value)
-        self.max_vx = float(get('max_vx').value)
-        self.max_vy = float(get('max_vy').value)
-        self.max_wz = float(get('max_wz').value)
-        self.max_servo = float(get('max_servo_deg').value)
+        self._le_ajustes()
+        # Sem este callback os valores ficariam congelados do __init__ e
+        # `ros2 param set` nao faria nada -- o que ANULA o motivo de eles
+        # serem parametros. Descobrir o sinal certo e tentativa e erro
+        # com o controle na mao; ter de reiniciar o no a cada tentativa
+        # tornaria isso insuportavel.
+        self.add_on_set_parameters_callback(self._on_params)
         self.deadzone = float(get('deadzone').value)
         self.joy_timeout = float(get('joy_timeout').value)
 
@@ -175,6 +200,58 @@ class JoyTeleopNode(Node):
             return False
         return bool(msg.buttons[index])
 
+    def _le_ajustes(self) -> None:
+        """(Re)le os ajustes que o operador troca ao vivo."""
+        get = self.get_parameter
+        sinal = lambda nome: -1.0 if bool(get(nome).value) else 1.0
+        self.sig_vx = sinal('invert_vx')
+        self.sig_wz = sinal('invert_wz')
+        self.sig_vy = sinal('invert_vy')
+        self.sig_servo = sinal('invert_servo')
+        self.turbo_button = int(get('turbo_button').value)
+        self.turbo_axis = int(get('turbo_axis').value)
+        self.turbo_scale = max(1.0, float(get('turbo_scale').value))
+        self.max_vx = float(get('max_vx').value)
+        self.max_vy = float(get('max_vy').value)
+        self.max_wz = float(get('max_wz').value)
+        self.max_servo = float(get('max_servo_deg').value)
+        self.require_deadman = bool(get('require_deadman').value)
+
+    def _on_params(self, params):
+        from rcl_interfaces.msg import SetParametersResult
+        nomes = {p.name for p in params}
+        vivos = {
+            'invert_vx', 'invert_wz', 'invert_vy', 'invert_servo',
+            'turbo_button', 'turbo_axis', 'turbo_scale',
+            'max_vx', 'max_vy', 'max_wz', 'max_servo_deg',
+            'require_deadman',
+        }
+        if nomes & vivos:
+            # O valor novo so aparece em get_parameter DEPOIS que este
+            # callback aceita, entao a releitura vai no proximo ciclo.
+            self.create_timer(0.0, self._releitura_unica)
+        return SetParametersResult(successful=True)
+
+    def _releitura_unica(self) -> None:
+        for t in list(self.timers):
+            if t.timer_period_ns == 0:
+                self.destroy_timer(t)
+        self._le_ajustes()
+        self.get_logger().info(
+            f'ajustes: vx{"-" if self.sig_vx < 0 else "+"} '
+            f'wz{"-" if self.sig_wz < 0 else "+"} '
+            f'vy{"-" if self.sig_vy < 0 else "+"} '
+            f'servo{"-" if self.sig_servo < 0 else "+"}  '
+            f'turbo x{self.turbo_scale:.2f}'
+        )
+
+    def _turbo(self, msg: Joy) -> bool:
+        if self.turbo_button >= 0 and self._botao(msg, self.turbo_button):
+            return True
+        if 0 <= self.turbo_axis < len(msg.axes):
+            return float(msg.axes[self.turbo_axis]) > 0.0
+        return False
+
     def _liberado(self, msg: Joy) -> bool:
         if not self.require_deadman:
             return True
@@ -215,21 +292,22 @@ class JoyTeleopNode(Node):
                 self._ativo = False
             return
 
-        twist = Twist()
-        # Linux entrega o eixo Y invertido (para cima = -1), e para frente
-        # tem de ser vx positivo.
-        twist.linear.x = -self._eixo(msg, self.axis_vx) * self.max_vx
-        # X do analogico: esquerda = -1. Em ROS, girar para a esquerda e
-        # wz POSITIVO (regra da mao direita, z para cima).
-        twist.angular.z = -self._eixo(msg, self.axis_wz) * self.max_wz
+        # Turbo levanta os limites enquanto segurado.
+        k = self.turbo_scale if self._turbo(msg) else 1.0
 
-        # Strafe pelos ombros. L1 = para a esquerda = +vy em ROS.
+        twist = Twist()
+        twist.linear.x = (self.sig_vx * self._eixo(msg, self.axis_vx)
+                          * self.max_vx * k)
+        twist.angular.z = (self.sig_wz * self._eixo(msg, self.axis_wz)
+                           * self.max_wz * k)
+
+        # Strafe pelos ombros.
         lateral = 0.0
         if self._botao(msg, self.btn_left):
             lateral += 1.0
         if self._botao(msg, self.btn_right):
             lateral -= 1.0
-        twist.linear.y = lateral * self.max_vy
+        twist.linear.y = self.sig_vy * lateral * self.max_vy * k
 
         self.cmd_pub.publish(twist)
         self._ativo = True
@@ -238,7 +316,8 @@ class JoyTeleopNode(Node):
         pedido.header.stamp = self.get_clock().now().to_msg()
         pedido.mode = HeadRequest.MODE_HOLD
         pedido.angle_deg = float(
-            self._eixo(msg, self.axis_servo) * self.max_servo
+            self.sig_servo * self._eixo(msg, self.axis_servo)
+            * self.max_servo
         )
         self.head_pub.publish(pedido)
 

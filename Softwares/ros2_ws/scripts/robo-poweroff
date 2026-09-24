@@ -1,0 +1,15 @@
+# Permite ao usuario do robo desligar a Raspberry pelo menu do ESP32,
+# sem senha e SEM dar sudo irrestrito.
+#
+# Cortar a energia de um Pi ligado corrompe o cartao SD. Esta regra
+# existe para que o desligamento seja pedido pelo menu do OLED, que e a
+# unica interface disponivel quando nao ha um PC por perto.
+#
+# Escopo minimo de proposito: exatamente um comando, com exatamente
+# estes argumentos. Nao da poder de mais nada.
+#
+# PARA DESATIVAR o desligamento pelo menu, basta remover este arquivo:
+#   sudo rm /etc/sudoers.d/robo-poweroff
+# O firmware continua mandando o pedido, o Pi continua registrando no
+# log, e nada desliga.
+bolt ALL=(root) NOPASSWD: /sbin/shutdown -h now

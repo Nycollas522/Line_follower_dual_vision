@@ -22,10 +22,25 @@ line_perception_bottom:
     output_namespace: /line
     label: bottom
 
-    # A CAMERA ESTA MONTADA DE CABECA PARA BAIXO. Verificado na bancada
-    # com o robo sobre a pista: sem isso, "perto" e "longe" trocam de
-    # lugar (o lookahead olha para tras) e o sinal do erro inverte.
-    rotate_180: true
+    # FALSE desde 22/09/2026. O chassi novo remontou esta camera e a
+    # orientacao fisica mudou -- o valor antigo (true) passou a INVERTER
+    # uma imagem que ja estava certa.
+    #
+    # MEDIDO na imagem crua: o chassi do robo aparece na BORDA DE BAIXO.
+    # Ele esta fisicamente atras da camera (que fica 132 mm a frente do
+    # centro), entao a borda onde ele aparece e o PERTO. Perto embaixo e
+    # longe em cima e a orientacao que o detector espera -- logo, nao
+    # rotacionar.
+    #
+    # Atencao ao sintoma, porque ele engana: no rqt a imagem PARECE
+    # certa, e esta mesmo -- o rqt mostra /cam_*/image_raw, o sensor cru.
+    # A rotacao e aplicada depois, dentro do detector. So o debug_image
+    # revela o problema.
+    #
+    # Com a imagem invertida o sinal do erro lateral inverte junto: o
+    # controlador esterca para LONGE da linha em vez de buscar. Nao e
+    # degradacao, e divergencia.
+    rotate_180: false
 
     # === MEDIDAS =====================================================
     # MONTAGEM NOVA (10/09/2026): a camera aponta RETO PARA BAIXO, na
@@ -35,7 +50,8 @@ line_perception_bottom:
     # propria imagem: a fita mede a MESMA largura em todas as linhas --
     # 0.681 / 0.684 / 0.664 / 0.664 / 0.667 do quadro, de cima a baixo.
     # Com a montagem antiga, inclinada, a largura crescia com a
-    # distancia. Por isso width_near_m == width_far_m agora.
+    # distancia. (OBSOLETO desde 22/09/2026: o suporte angulado
+    # introduziu perspectiva, e width_near != width_far agora.)
     #
     # RECALIBRADO 10/09/2026 depois de levantar a camera para ~87mm.
     # A fita de 20mm ocupa 23.0% dos 640px, logo o quadro cobre
@@ -55,31 +71,45 @@ line_perception_bottom:
     # O detector separa a linha do piso pelos flancos escuros; com 3.5mm
     # qualquer desvio real apagava um flanco e a deteccao caia de uma vez.
     #
-    # ABSOLUTO, agora MEDIDO COM REGUA (nao mais estimativa):
-    #   entre-eixos 176mm -> eixo dianteiro a 88mm do centro cinematico
-    #   camera a 44mm a frente do eixo dianteiro
-    #   -> camera a 132mm do centro, olhando reto para baixo
-    # A imagem inteira cobre 87.1*480/640 = 65.3mm de profundidade
-    # centrados nesse ponto (99.3 a 164.7mm), e o corte do robo joga a
-    # borda proxima 11.0mm para frente.
+    # RECALIBRADO 22/09/2026, com o suporte ANGULADO PARA CIMA.
     #
-    # CONFERENCIA CRUZADA: o intervalo que sai dessa conta e 54.3mm,
-    # contra 54.5mm medidos direto na imagem -- 0.4% de diferenca por
-    # dois caminhos independentes.
+    # A camera deixou de ser ortografica. Antes o campo era 83.9 mm
+    # constante em toda a profundidade; agora vai de 76.4 mm (perto) a
+    # 98.7 mm (longe) -- 29% de variacao, medida na imagem com residuo
+    # de 1.0%. Por isso width_near != width_far agora.
     #
-    # Isto importa: vai em lookahead_distance, que o controlador usa
-    # para descontar o amortecimento que a montagem ja oferece (ver
-    # _ganho_de_heading). Com ~115mm de lookahead, k_lateral*L = 1.03 --
-    # dois tercos do k_heading nominal vem de graca da montagem.
-    depth_near_m: 0.1104
-    depth_far_m: 0.1562
+    # PROFUNDIDADE, regua do operador, a partir do EIXO DIANTEIRO:
+    #   a imagem comeca 1 cm a frente do eixo e cobre 6-7 cm
+    # O YAML mede do CENTRO CINEMATICO, e o eixo dianteiro esta a 88 mm
+    # dele (entre-eixos 176), entao:
+    #   borda de baixo  88 + 10 = 98 mm
+    #   borda de cima   98 + 65 = 163 mm
+    #
+    # A base de profundidade subiu de 45.8 para 65 mm. Isso importa: a
+    # base e o que permite estimar o HEADING, e heading ruidoso degrada
+    # antecipacao e freio de curva.
+    depth_near_m: 0.0980
+    depth_far_m: 0.1630
     #
     # ELES ASSUMEM UMA FITA DE 2.0 cm. Meca a sua fita:
     #   se ela tiver L cm, multiplique os width_* por (L / 2.0).
     # Depois de ajustar, confira em /line/detection que line_width bate
     # com a largura real -- e o proprio teste da calibracao.
-    width_near_m: 0.0839
-    width_far_m: 0.0839
+    # 0.0780 (era 0.0839). Com 0.0839 o detector reportava 21.50 mm
+    # para a fita de 20.0 -- 7% a mais, com desvio ZERO, entao vies e
+    # nao ruido. Nao e inclinacao da linha (o heading estava em 3 graus,
+    # que daria 0.14%): e BORRAMENTO da borda, o limiar pegando a
+    # transicao suave e engordando a fita.
+    #
+    # A correcao e escalar o campo por 20.0/21.50: o que precisa fechar
+    # e a largura REPORTADA, porque e dela que saem o termo de
+    # plausibilidade de largura e a escala do erro lateral em mm.
+    # Medidos na imagem pela fita de 20 mm, ja com a correcao de
+    # borramento (o limiar pega a transicao suave da borda e engorda a
+    # fita). Confira em /line/detection que line_width fica em 20.0 mm;
+    # e o proprio teste desta calibracao.
+    width_near_m: 0.0776
+    width_far_m: 0.1002
     # Positivo se a camera esta montada a direita do eixo do robo.
     # E aqui que se corrige o robo andar sempre "colado" num dos lados.
     camera_x_offset_m: 0.0
@@ -96,18 +126,18 @@ line_perception_bottom:
     # O PROPRIO ROBO aparece na borda mais proxima. Depois do
     # rotate_180 ele fica na BASE, entao o corte e por baixo.
     #
-    # RECALIBRADO 10/09/2026 (2a vez): a camera se deslocou ~7mm para
-    # tras quando o suporte da superior foi mexido, e o robo passou a
-    # ocupar 131 linhas em vez de 81. Com roi_bottom=0.831 sobravam ~50
-    # linhas de chassi DENTRO da ROI, e o preto do chassi puxava o
-    # limiar de Otsu: as bandas cairam de 5/5 para 3/5 e a confianca de
-    # 0.82 para 0.29. 1 - 131/480 = 0.727; usamos 0.72 com folga.
+    # 1.00 desde 22/09/2026: com o suporte ANGULADO PARA CIMA o chassi
+    # SAIU DO QUADRO. O corte existia so por causa dele -- em 10/09 ele
+    # ocupava 131 linhas na base e o preto puxava o limiar de Otsu,
+    # derrubando as bandas de 5/5 para 3/5.
     #
-    # NOTA UTIL: depth_near_m NAO mudou (0.1104) porque a borda da ROI
-    # e ancorada no PARA-CHOQUE, que e ponto fixo no chao -- so a borda
-    # distante acompanha a camera. Se o suporte se mexer de novo, o
-    # sintoma sera este: bandas caindo com contraste ainda alto.
-    roi_bottom: 0.72
+    # Usando o quadro inteiro a confianca subiu de 0.772 para 0.878, e a
+    # base de profundidade de 45.8 para 65 mm.
+    #
+    # SE O SUPORTE SE MEXER DE NOVO, o sintoma sera este: bandas caindo
+    # com o contraste ainda alto. Ai confira a imagem de debug antes de
+    # mexer em qualquer numero.
+    roi_bottom: 1.00
     # Largura de trabalho apos o downscale. Se o FPS cair, baixe para
     # 128; se a linha ficar fina demais para ser detectada, suba p/ 200.
     work_width: 160
@@ -204,24 +234,76 @@ line_perception_front:
     output_namespace: /line_front
     label: front
 
-    # Esta camera TAMBEM esta de cabeca para baixo.
-    rotate_180: true
+    # FALSE desde 22/09/2026, pelo mesmo motivo da inferior: o suporte
+    # em L que angulou esta camera para baixo mudou a orientacao fisica.
+    #
+    # MEDIDO na imagem crua, pela PERSPECTIVA -- que aqui existe e da
+    # uma prova independente. A largura da fita cresce de cima para
+    # baixo: 0, 0, 40, 49, 59, 66 px em seis faixas. Estreita e longe,
+    # larga e perto, entao o longe ja esta no topo e nao ha o que
+    # rotacionar. (As duas primeiras faixas dao zero porque a fita
+    # TERMINA ali -- o fim dela fica no topo do quadro.)
+    rotate_180: false
 
-    # Ja conhecidas: comeca a ver 20.5 cm a frente, alcanca 34 cm.
-    depth_near_m: 0.205
-    depth_far_m: 0.545
-    # Conferido na bancada: com estes valores a largura medida deu
-    # 18.3 mm para uma fita de 20 mm. Mesma regra de escala da camera
-    # inferior se a sua fita nao for de 2.0 cm.
-    width_near_m: 0.220
-    width_far_m: 0.420
+    # RECALIBRADO 22/09/2026, depois de a camera ser angulada para baixo
+    # com um suporte em L. Ela passou a comecar muito mais perto.
+    #
+    # DUAS FONTES QUE CONCORDAM:
+    #   regua  -> 110 mm na borda de baixo; 530 mm de LARGURA no topo
+    #   imagem -> escalonamento da fita de 20 mm em 5 linhas
+    # O ajuste usa as duas (1/campo linear na linha, relacao projetiva).
+    # Elas divergem 7.5% so na borda extrema do quadro, compativel com
+    # distorcao leve de lente -- e essa borda fica FORA da ROI.
+    #
+    # Mapeamento resultante:
+    #     y=  0 -> 375 mm e 497 mm de largura
+    #     y= 96 -> 253 mm e 335 mm   (borda de cima da ROI)
+    #     y=480 -> 110 mm e 146 mm   (borda de baixo)
+    #
+    # POR QUE AS DUAS JUNTAS: profundidade e largura TEM de ser
+    # mutuamente consistentes, porque a geometria as combina -- a largura
+    # da o erro lateral, o espacamento em profundidade da o heading.
+    # Calibrar cada uma por uma fonte diferente garante que discordem, e
+    # o heading sai errado sem dar sintoma obvio.
+    #
+    # ARMADILHA DO CAMINHO: houve uma leitura intermediaria de "53 cm de
+    # profundidade ate a borda de cima". Ela nao sobreviveu ao
+    # cruzamento: com ela, o campo perto teria 71 mm, e aí uma fita de
+    # 20 mm ocuparia 181 px na imagem -- a imagem mostra 77. Nao era
+    # imprecisao, eram grandezas trocadas: os 53 cm sao LARGURA no topo,
+    # nao distancia. Sempre confira uma medida de regua contra a fita na
+    # imagem antes de grava-la.
+    # 0.198 (era 0.110): a referencia do operador e o EIXO DIANTEIRO,
+    # que fica a 88 mm do centro cinematico -- e o YAML mede do centro.
+    # A camera comeca a ver 11 cm a frente do eixo, logo 198 mm do
+    # centro. A leitura anterior tratava os 11 cm como se fossem do
+    # centro, e subestimava o lookahead em 88 mm.
+    depth_near_m: 0.1980
+    depth_far_m: 0.2530
+    # Medidos na imagem pela fita de 20 mm, nas bordas da ROI:
+    #     y=480 (perto) fita 77 px -> campo 166 mm
+    #     y= 96 (longe) fita 38 px -> campo 360 mm
+    # Confira em /line_front/detection que line_width fica perto de
+    # 20 mm; e o proprio teste desta calibracao.
+    # Do ajuste acima, ja com a correcao de borramento (20.0/22.23): sem
+    # ela o detector reportava 22.23 mm para a fita de 20.0 -- o limiar
+    # pega a transicao suave da borda e engorda a fita.
+    # Remedidos em 22/09/2026 junto com a inferior, com o achatamento
+    # de fundo ligado (ver background_kernel_ratio).
+    width_near_m: 0.1365
+    width_far_m: 0.3225
     camera_x_offset_m: 0.0
     line_width_m: 0.020
 
     # Depois de desinverter, a pista ocupa a metade INFERIOR do quadro;
     # acima disso e parede/bancada. Medido: com roi_top 0.45 a deteccao
     # deu confianca 0.99 e 4/4 bandas.
-    roi_top: 0.45
+    # 0.20 (era 0.45). MEDIDO: a fita e legivel desde y=90, e a ROI
+    # comecava em y=216 -- jogavamos fora quase metade do que a camera
+    # ve, justamente a metade MAIS DISTANTE, que e o motivo de esta
+    # camera existir. O alcance da ROI vai de ~176 mm para ~300 mm.
+    # 0.05 (era 0.20): com o suporte atual a fita e legivel ate y=15.
+    roi_top: 0.05
     roi_bottom: 1.00
     work_width: 160
     # 5 bandas dao margem: medido na pista, com 4 a banda mais distante
@@ -243,22 +325,14 @@ line_perception_front:
     min_band_score: 0.20
     band_height: 0.12
     open_kernel: 3
-    # DESLIGADO nesta camera, ao contrario da inferior. MEDIDO no mesmo
-    # instante: aqui NAO ha gradiente em profundidade -- o Otsu local de
-    # cada banda deu 169/173/172/170/171 contra 171 do global, ou seja,
-    # um limiar unico ja serve o quadro inteiro. Ha uma inclinacao
-    # lateral de 18 contagens, mas ela e uniforme na profundidade e nao
-    # esta derrubando banda nenhuma (5/5, confianca 0.923).
-    #
-    # E ligar CUSTA: esta camera tem perspectiva, entao a linha vai de
-    # 14.5px (perto) a 7.6px (longe) e uma janela unica e sempre um
-    # compromisso -- medido, a largura caiu de 19.3 para 18.0mm e a
-    # confianca de 0.923 para 0.909.
-    #
-    # RECONSIDERAR se voltar a sombra diagonal que ja prendeu a confianca
-    # desta camera em 0.49-0.52 com contraste 74: esse sintoma (contraste
-    # alto e confianca baixa) e exatamente o que o achatamento resolve.
-    background_kernel_ratio: 0.0
+    # LIGADO desde 22/09/2026. Estava desligado porque em setembro a
+    # medicao mostrou que esta camera nao tinha gradiente de iluminacao.
+    # Mas o operador relatou perder a linha em PONTOS DE LUZ da pista, e
+    # e exatamente isso que o top-hat remove -- ele apaga qualquer
+    # variacao de fundo mais larga que a fita, seja gradiente ou reflexo
+    # localizado. Medido na cena atual: confianca 0.919 -> 0.942, custo
+    # +0.26 ms.
+    background_kernel_ratio: 3.0
     min_bands_for_curvature: 4
     max_curvature: 8.0
     max_heading_for_curvature: 0.30
@@ -464,7 +538,10 @@ line_follower_node:
     coast_speed_ratio: 0.5
     # Perda confirmada: para de avancar e procura por ate 3 s.
     recovery_time: 3.0
-    recovery_wz: 0.9
+    # 0,6 e nao 0,9: girando cego a 0,9 rad/s por ate recovery_time=3s o
+    # robo varre 155 graus e passa direto pela linha. Medido: um episodio
+    # de 2,95s a 0,89 rad/s em t=85,4s da corrida de 3min.
+    recovery_wz: 0.6
     # Projeta a linha para decidir o LADO da busca, em vez de usar o
     # erro lateral cru: em curva as bandas morrem por heading enquanto o
     # lateral ainda e +3 a +5mm (ruido), e o robo girava para o lado
@@ -534,7 +611,17 @@ line_follower_node:
     # menor risco e o que mais justifica ter a segunda camera.
     preview_recovery_enabled: true
     preview_timeout: 0.40
-    preview_confidence_min: 0.40
+    # 0.30, nao 0.40: medido na pista, na aproximacao da quebra a conf da
+    # superior decai 0,54 -> 0,46 -> 0,38 -> 0,32 conforme a curva entra no
+    # quadro. Em 0,40 o preview era descartado em t=4,13s, 1,2s ANTES da
+    # inferior perder a linha -- justo quando ele era a unica fonte certa.
+    preview_confidence_min: 0.30
+    # Quanto tempo o lado visto pela superior continua valendo depois que
+    # ela deixa de ver. So define o LADO da busca em RECOVERING, nunca a
+    # magnitude. 2,0 s a 0,10 m/s = 20 cm, da ordem do que a superior
+    # enxerga a frente (19,8 a 25,3 cm): a leitura ainda descreve onde o
+    # robo esta agora. 0.0 desliga a memoria.
+    preview_memory_time: 2.0
     # Fracao da curvatura antecipada aplicada como feedforward. So
     # funciona para curva suave -- ver preview_heading_gain para quinas.
     preview_ff_gain: 0.35
@@ -756,6 +843,41 @@ joy_teleop_node:
     deadman_axis: 2
     deadman_button: -1
     require_deadman: true
+
+    # SINAIS. Testado com o controle na mao em 21/09/2026: frente ia
+    # para tras, esquerda para a direita e R1 para a esquerda -- os tres
+    # invertidos. A numeracao e a convencao de sinal do driver de
+    # joystick mudam entre versoes, entao isto e parametro e nao codigo:
+    # se inverter de novo, troque aqui.
+    # CORRIGIDO 22/09/2026 com o controle na mao. A primeira tentativa
+    # poz os tres em `true` -- e isso reproduzia exatamente o sinal
+    # negativo que ja existia no codigo, entao nada mudou. O que inverte
+    # de verdade e `false`.
+    # Combinacao CONFIRMADA com o controle na mao em 22/09/2026, depois
+    # de duas tentativas erradas minhas:
+    #   1a: pus os tres em `true`, o que reproduzia exatamente o sinal
+    #       negativo que ja estava no codigo -- nada mudou.
+    #   2a: pus os quatro coerentes, e so o strafe ficou trocado.
+    # Nao ha simetria a procurar aqui: a numeracao e o sinal de cada
+    # eixo saem do driver, e a montagem fisica das rodas entra junto.
+    # Por isso cada um e independente, e nao um "inverter tudo".
+    # invert_vy voltou para FALSE em 22/09/2026, depois de o operador
+    # descobrir que uma roda mecanum estava FORA DO X e corrigir a
+    # montagem. O `true` anterior nao era convencao de driver: era
+    # compensacao de um rolete espelhado, que inverte justamente a
+    # contribuicao LATERAL da roda -- por isso so o strafe estava errado
+    # enquanto frente e giro pareciam certos.
+    invert_vx: false
+    invert_wz: false
+    invert_vy: false
+    invert_servo: true
+
+    # TURBO: segure o botao para levantar os limites. O teto real
+    # continua sendo maxWheelMps do firmware (0.70 m/s) -- isto so
+    # levanta o limite do teleop, de 0.20 para 0.32 m/s com 1.6.
+    turbo_button: 7        # R2; -1 desliga
+    turbo_axis: -1         # use este se o seu R2 vier como eixo
+    turbo_scale: 1.6
 
     # Limites do modo RC, deliberadamente abaixo do v_max da autonomia:
     # na mao o operador reage mais devagar que o controlador.

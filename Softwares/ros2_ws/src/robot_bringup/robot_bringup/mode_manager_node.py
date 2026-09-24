@@ -56,11 +56,14 @@ class ModeManagerNode(Node):
         )
 
         self._clientes: dict[str, object] = {}
+        # Pedidos que ainda nao chegaram ao destino, por no+parametro.
+        self._pendentes: dict[tuple, bool] = {}
         self._modo = -1
         # Republica o estado periodicamente: quem subir depois (e o
         # proprio ESP32, se reiniciar) precisa descobrir o modo atual
         # sem ter que perguntar.
         self.create_timer(1.0, self._publica_estado)
+        self.create_timer(1.0, self._tenta_pendentes)
         self.create_timer(
             2.0, lambda: self._aplica_uma_vez(
                 int(self.get_parameter('modo_inicial').value)
@@ -76,14 +79,27 @@ class ModeManagerNode(Node):
         return self._clientes[node_name]
 
     def _set_bool(self, node_name: str, param: str, valor: bool) -> None:
-        """Ajusta um parametro booleano, tolerando no ausente.
+        """Ajusta um parametro booleano; REENFILEIRA se o no nao respondeu.
 
-        Tolerar e proposital: em modo RC o seguidor pode nem estar no
-        ar, e isso nao e erro -- e a configuracao esperada.
+        POR QUE INSISTE (21/09/2026): a versao anterior pulava em
+        silencio quando o servico de parametros ainda nao estava pronto.
+        No boot pelo systemd o mode_manager sobe junto com os demais, e
+        essa corrida deixava o seguidor no default do YAML. Com
+        body_control_enabled=True naquele default, o robo ligava com o
+        corpo ARMADO -- e ninguem ficava sabendo, porque o erro era
+        silencioso.
+
+        Agora o pedido fica pendente e e repetido pelo temporizador ate
+        o no aparecer. Desligar nunca pode depender de sorte de timing.
         """
         cli = self._cliente(node_name)
         if not cli.service_is_ready():
-            self.get_logger().debug(f'{node_name} ausente; ignorando {param}')
+            self._pendentes[(node_name, param)] = valor
+            self.get_logger().warn(
+                f'{node_name} ainda sem servico de parametros; '
+                f'{param}={valor} fica pendente e sera repetido.',
+                throttle_duration_sec=10.0,
+            )
             return
         pedido = SetParameters.Request()
         pedido.parameters = [
@@ -95,6 +111,17 @@ class ModeManagerNode(Node):
             )
         ]
         cli.call_async(pedido)
+        self._pendentes.pop((node_name, param), None)
+
+    def _tenta_pendentes(self) -> None:
+        """Repete o que nao chegou. Roda pelo temporizador de estado."""
+        for (node_name, param), valor in list(self._pendentes.items()):
+            cli = self._cliente(node_name)
+            if cli.service_is_ready():
+                self.get_logger().info(
+                    f'{node_name} apareceu; aplicando {param}={valor}.'
+                )
+                self._set_bool(node_name, param, valor)
 
     def _on_request(self, msg: String) -> None:
         texto = msg.data.strip().upper()

@@ -52,7 +52,7 @@ from rcl_interfaces.msg import SetParametersResult
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, String
 
 
 def control_qos(depth: int = 10) -> QoSProfile:
@@ -167,6 +167,9 @@ class HeadServoNode(Node):
         self.create_subscription(
             Bool, '/controle/enable', self._on_autonomy, control_qos()
         )
+        self.create_subscription(
+            String, '/robot/mode', self._on_mode, control_qos()
+        )
 
         self._mode = HeadRequest.MODE_CENTER
         self._requested_angle = 0.0
@@ -176,6 +179,9 @@ class HeadServoNode(Node):
         self._measured = 0.0
         self._scan_direction = 1.0
         self._enabled = False
+        # Modo de operacao publicado pelo mode_manager. RC conta
+        # como 'alguem no comando' tanto quanto a autonomia.
+        self._modo = ''
         self._last_sent: float | None = None
         self._tracked_angle = 0.0   # so a parte vinda do loop visual
         self._front_lateral_error = 0.0
@@ -280,6 +286,23 @@ class HeadServoNode(Node):
             erro += 0.5 * float(msg.curvature) * avanco * avanco
         return erro
 
+    def _operando(self) -> bool:
+        """Ha alguem no comando do robo?
+
+        Era so `self._enabled` (autonomia ligada), e isso tornava o servo
+        INUTIL no modo RC: ali a autonomia fica DESLIGADA de proposito,
+        porque e o que faz o motor_serial_node obedecer ao /cmd_vel do
+        joystick em vez do comando autonomo. Resultado: o analogico
+        direito nao mexia a cabeca e nao havia sintoma que explicasse.
+
+        Relatado pelo operador em 21/09/2026, junto com os eixos
+        invertidos do teleop.
+        """
+        return self._enabled or self._modo == 'RC'
+
+    def _on_mode(self, msg: String) -> None:
+        self._modo = msg.data
+
     def _on_autonomy(self, msg: Bool) -> None:
         if bool(msg.data) == self._enabled:
             return
@@ -306,9 +329,10 @@ class HeadServoNode(Node):
             self._request_time is None
             or (now - self._request_time) > self.request_timeout
         )
-        if stale or not self._enabled:
-            # Watchdog: quem pedia parou de pedir (ou a autonomia caiu).
-            # A cabeca nao fica travada de lado esperando alguem lembrar.
+        if stale or not self._operando():
+            # Watchdog: quem pedia parou de pedir (ou ninguem esta no
+            # comando). A cabeca nao fica travada de lado esperando
+            # alguem lembrar dela.
             mode = HeadRequest.MODE_CENTER
 
         if mode == HeadRequest.MODE_SCAN:

@@ -477,7 +477,31 @@ que em modo RC apenas competiriam por CPU e pela autoridade da cabeca.
 | **L2 (segurar)** | **homem-morto: sem ele nada se move** |
 | analogico esquerdo | Y = frente/tras, X = giro |
 | L1 / R1 | translacao lateral (strafe) |
+| **R2 (segurar)** | turbo: levanta os limites por `turbo_scale` |
 | analogico direito | X = servo da cabeca (pan) |
+
+### Sinais dos eixos: ajuste ao vivo, nao no codigo
+
+A numeracao e a convencao de sinal de cada eixo saem do driver de
+joystick, e a montagem fisica das rodas entra junto. Nao ha simetria a
+procurar -- cada eixo e independente. Por isso sao parametros com
+callback: `ros2 param set` vale NA HORA, sem reiniciar o no.
+
+```bash
+ros2 param set /joy_teleop_node invert_vx true      # frente/tras
+ros2 param set /joy_teleop_node invert_wz true      # giro
+ros2 param set /joy_teleop_node invert_vy true      # strafe L1/R1
+ros2 param set /joy_teleop_node invert_servo true   # pan da cabeca
+```
+
+O no loga a combinacao a cada troca (`ajustes: vx+ wz+ vy- servo-`).
+Achou a certa, grave no YAML.
+
+> Armadilha que custou duas rodadas de teste em 22/09/2026: o codigo
+> antigo ja tinha um sinal negativo embutido, entao `invert_*: true`
+> reproduzia o comportamento antigo em vez de inverte-lo. E os valores
+> eram lidos so no `__init__`, entao `ros2 param set` nao fazia nada --
+> o que anulava o motivo de serem parametros. Ambos corrigidos.
 
 O homem-morto nao foi pedido pelo operador, foi incluido de proposito:
 analogico com deriva e um robo que sai andando sozinho, e segurar um

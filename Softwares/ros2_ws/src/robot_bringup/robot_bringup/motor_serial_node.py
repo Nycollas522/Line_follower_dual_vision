@@ -71,6 +71,9 @@ class MotorSerialNode(Node):
         self.declare_parameter('port', '/dev/ttyACM0')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('serial_crc', True)
+        # Segundos apos o inicio do no em que um pedido de
+        # desligamento e IGNORADO. Protege contra ciclo de boot.
+        self.declare_parameter('shutdown_grace', 60.0)
         self.declare_parameter('manual_cmd_topic', '/cmd_vel')
         self.declare_parameter('auto_cmd_topic', '/cmd_vel_auto')
         self.declare_parameter('enable_command_topic', '/controle/enable')
@@ -223,6 +226,9 @@ class MotorSerialNode(Node):
         port = str(self.get_parameter('port').value)
         baudrate = int(self.get_parameter('baudrate').value)
         self.serial_crc = bool(self.get_parameter('serial_crc').value)
+        self.shutdown_grace = float(
+            self.get_parameter('shutdown_grace').value
+        )
         try:
             self.ser = serial.Serial(
                 port, baudrate, timeout=0.0, write_timeout=0.2
@@ -319,6 +325,44 @@ class MotorSerialNode(Node):
         if estado != self._info_cache.get(2):
             self._info_cache[2] = estado
             self._write(f'SET_INFO,2,{estado}\n')
+
+    def _desliga_o_pi(self) -> None:
+        """Desliga a Raspberry de verdade, a pedido do menu do ESP32.
+
+        Cortar a energia de um Pi ligado corrompe o cartao SD, e o
+        operador nao tem como saber por fora quando o sistema parou de
+        escrever. Aqui ele pede pelo menu e o Pi desliga direito.
+
+        O ESP32 e alimentado PELO Pi, entao o OLED apagar e o sinal de
+        que ja da para cortar a chave -- nao ha como o firmware avisar
+        depois, porque ele cai junto.
+
+        Requer /etc/sudoers.d/robo-poweroff. Sem a regra o comando falha
+        e o operador descobre pelo log, em vez de esperar um
+        desligamento que nunca vem.
+        """
+        # Para os motores ANTES: o desligamento leva alguns segundos e o
+        # robo nao pode passa-los andando.
+        for _ in range(5):
+            self._write('TWIST,0.0000,0.0000,0.0000\n')
+        self._write('STOP\n')
+        self.get_logger().warn('Parando motores e desligando a Raspberry.')
+
+        import subprocess
+        try:
+            r = subprocess.run(
+                ['sudo', '-n', '/sbin/shutdown', '-h', 'now'],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode != 0:
+                self.get_logger().error(
+                    'FALHA ao desligar: '
+                    f'{(r.stderr or r.stdout).strip()!r}. '
+                    'Falta /etc/sudoers.d/robo-poweroff? '
+                    'Veja "Desligar pelo menu" no README.'
+                )
+        except Exception as erro:
+            self.get_logger().error(f'FALHA ao desligar: {erro}')
 
     def _on_mode(self, msg: String) -> None:
         """Confirma no OLED o modo que o Pi esta de fato executando."""
@@ -449,6 +493,57 @@ class MotorSerialNode(Node):
 
         fields = line.split(',')
         head = fields[0]
+
+        if fields == ['MENU', 'SHUTDOWN_REQ']:
+            # ETAPA 1: SO REGISTRA. Nao desliga nada, e nao existe regra
+            # de sudoers instalada.
+            #
+            # POR QUE ASSIM: a primeira versao desligava de verdade e o
+            # Pi passou a desligar sozinho. O caminho de confirmacao que
+            # eu escrevi no firmware era INALCANCAVEL (ficava numa cadeia
+            # else-if depois do ramo que captura toda pressao longa),
+            # entao a causa real nunca foi encontrada -- e implementar de
+            # novo sem descobri-la seria repetir o erro.
+            #
+            # Este log e o instrumento: se o pedido aparecer sem ninguem
+            # ter confirmado no menu, o culpado e o firmware e da para
+            # ver a hora. Se o Pi desligar sem este log, a causa nunca
+            # foi esta funcionalidade.
+            # Tempo MONOTONICO desde o inicio do no. self._now() devolve
+            # o relogio de epoca (1.79e9 s), inutil para correlacionar
+            # com "ha quanto tempo o robo esta ligado" -- que e
+            # exatamente o que este log existe para responder.
+            import time as _t
+            agora = _t.monotonic()
+            inicio = getattr(self, '_t0_node', None)
+            if inicio is None:
+                inicio = self._t0_node = agora
+            anterior = getattr(self, '_ultimo_shutdown_req', None)
+            self._ultimo_shutdown_req = agora
+            self._n_shutdown_req = getattr(self, '_n_shutdown_req', 0) + 1
+            desde = ('primeiro' if anterior is None
+                     else f'anterior ha {agora - anterior:.1f}s')
+            self.get_logger().warn(
+                f'PEDIDO DE DESLIGAMENTO #{self._n_shutdown_req} do menu '
+                f'do ESP32 (no ar ha {agora - inicio:.1f}s, {desde}).'
+            )
+
+            # CARENCIA DE BOOT. Um pedido espurio logo apos ligar criaria
+            # um ciclo: desliga, o operador religa, desliga de novo. Foi
+            # exatamente esse o sintoma relatado ("desligar sempre depois
+            # de um tempo"), e a carencia quebra o pior caso -- da tempo
+            # de chegar ao menu e desabilitar antes de perder a maquina.
+            if agora - inicio < self.shutdown_grace:
+                self.get_logger().error(
+                    f'IGNORADO: o no esta no ar ha so {agora - inicio:.0f}s '
+                    f'(carencia de {self.shutdown_grace:.0f}s). Se este '
+                    'pedido nao foi seu, ha um disparo espurio -- e esta '
+                    'linha e a prova, com o horario.'
+                )
+                return
+
+            self._desliga_o_pi()
+            return
 
         if len(fields) == 3 and fields[0] == 'MENU' and fields[1] == 'MODE':
             nome = {'0': 'PARADO', '1': 'SEGUIDOR', '2': 'RC'}.get(fields[2])

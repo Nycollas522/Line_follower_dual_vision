@@ -257,6 +257,18 @@ class ControllerConfig:
     preview_recovery_enabled: bool = True
     preview_timeout: float = 0.40      # s
     preview_confidence_min: float = 0.40
+    # MEMORIA DO PREVIEW. Na quebra a camera superior ve a curva ~1,2 s
+    # antes da inferior perder a linha, mas quando a recuperacao comeca
+    # ela ja publica valid=False -- nao e mensagem velha, e mensagem sem
+    # deteccao, entao preview_timeout nao segura nada. Sem isso o lado do
+    # giro cai em _last_side da inferior, que na quebra e cara-ou-coroa:
+    # medido na pista, a MESMA primeira quebra girou para lados opostos
+    # em duas corridas seguidas. Guardar o ultimo lado utilizavel da
+    # superior por alguns segundos usa a informacao que ja existia.
+    # 2.0 s a 0.10 m/s = 20 cm percorridos, da ordem do que a superior
+    # enxerga a frente (19,8 a 25,3 cm), entao a leitura ainda descreve
+    # onde o robo esta agora. Vale SO em RECOVERING e so define o LADO.
+    preview_memory_time: float = 2.0   # s
     preview_ff_gain: float = 0.35      # fracao da curvatura do preview
     # Ganho do heading do preview, aplicado direto (rad/s por rad), na
     # mesma forma de k_heading. Existe porque curvatura so faz sentido
@@ -381,6 +393,9 @@ class FollowerController:
         self._state_since = 0.0
         self._now = 0.0
         self._last_side = 1.0        # +1 = linha saiu pela direita
+        # ultimo lado visto pela superior enquanto ela era utilizavel
+        self._preview_side: float | None = None
+        self._preview_side_time = 0.0
         self._relock_count = 0
         self._seen_line = False
         self._scan_phase = 0.0
@@ -713,6 +728,26 @@ class FollowerController:
             and preview.age <= cfg.preview_timeout
             and preview.confidence >= cfg.preview_confidence_min
         )
+        # Assim que o preview vale, memoriza o lado. O calculo do lado e o
+        # mesmo usado na recuperacao: com a cabeca girada quem manda e o
+        # angulo do pan, com ela centrada e o erro lateral do preview.
+        if preview_usable:
+            if abs(servo_angle_deg) > cfg.preview_center_tol_deg:
+                self._preview_side = 1.0 if servo_angle_deg >= 0.0 else -1.0
+            else:
+                # Mesma projecao usada para _last_side, e pela mesma razao:
+                # na aproximacao da quebra o erro lateral da superior ainda
+                # e ruido (medido: +5,8mm e -0,5mm) enquanto o heading dela
+                # ja marca +49,6deg e +66,9deg. Projetando 50mm isso da
+                # +64mm e +117mm -- o lado da quebra, sem ambiguidade.
+                projetado = preview.lateral_error
+                if preview.heading_valid:
+                    projetado += cfg.recovery_projection_m * math.tan(
+                        preview.heading_error
+                    )
+                self._preview_side = 1.0 if projetado >= 0.0 else -1.0
+            self._preview_side_time = self._now
+
         # O preview so entra no calculo de direcao com a cabeca centrada.
         # Com o pan girado, o deslocamento horizontal na imagem mistura
         # "a linha desviou" com "a camera girou", e nao existe aqui uma
@@ -981,6 +1016,17 @@ class FollowerController:
                 # em direcao a linha em vez de perseguir a cabeca.
                 command.head_mode = HeadMode.HOLD
                 command.head_angle = servo_angle_deg
+            elif (
+                cfg.preview_recovery_enabled
+                and self._preview_side is not None
+                and self._now - self._preview_side_time
+                <= cfg.preview_memory_time
+            ):
+                # A superior nao ve nada AGORA, mas viu a curva ha pouco.
+                # Essa leitura e melhor que _last_side da inferior, que
+                # na quebra vem de 1-2 bandas. So o lado; a magnitude
+                # continua sendo recovery_wz.
+                self._last_side = self._preview_side
 
         command.vx = self._vx
         command.wz = self._wz

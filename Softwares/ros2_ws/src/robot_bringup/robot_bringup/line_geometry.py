@@ -172,6 +172,25 @@ class DetectorConfig:
     # simplesmente nao age -- em vez de agir sobre ruido.
     curvature_enabled: bool = True
     min_bands_for_curvature: int = 4
+    # Minimo de bandas para o HEADING valer. A curvatura sempre teve
+    # essa guarda; o heading nao tinha, e bastavam 2 bandas.
+    #
+    # POR QUE EXISTE (22/09/2026): uma reta por 2 pontos nao tem
+    # redundancia -- se uma banda escorrega, o angulo gira sem limite. E
+    # numa QUEBRA as bandas que sobrevivem costumam cair em ramos
+    # DIFERENTES da curva, o que da um heading que nao aponta para lugar
+    # nenhum. Capturado em corrida: na primeira quebra o heading foi de
+    # -11.7 para +29.8 graus em 0.6 s, com 2 bandas e confianca 0.09, e
+    # o controlador esterçou a fundo (wz saturado em -0.900) em cima
+    # disso. O robo saiu para a esquerda, como o operador relatou.
+    #
+    # Com 3 bandas ha um grau de redundancia, e o residuo do ajuste
+    # (fit_residual) passa a significar alguma coisa.
+    #
+    # Quando o heading fica invalido o controlador degrada para esterçar
+    # so pelo erro LATERAL -- que com 2 bandas ainda e uma posicao
+    # honesta, ao contrario de uma inclinacao.
+    min_bands_for_heading: int = 3
     # Limite fisico de curvatura aceito; acima disso o ajuste e ruido.
     max_curvature: float = 12.0
     # Acima deste heading, a curvatura ajustada deixa de ser confiavel:
@@ -509,7 +528,7 @@ class LineDetector:
             np.median([s.width_m for s in samples])
         )
 
-        if len(samples) < 2:
+        if len(samples) < max(2, cfg.min_bands_for_heading):
             # Uma banda so: da para saber onde a linha esta, nao para onde
             # ela vai. Publicar heading aqui seria inventar informacao.
             observation.heading_valid = False

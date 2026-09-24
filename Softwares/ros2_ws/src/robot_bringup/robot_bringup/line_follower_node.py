@@ -68,7 +68,21 @@ class LineFollowerNode(Node):
         # Nao substitui desligar a tensao dos motores -- e conveniencia
         # de teste, nao trava de seguranca. A ausencia de cmd_vel faz o
         # watchdog do ESP32 parar os motores, que e o lado seguro.
-        self.declare_parameter('body_control_enabled', True)
+        # FALSE por padrao, de proposito. O robo sobe SEM autoridade
+        # sobre as rodas e alguem precisa arma-lo explicitamente.
+        #
+        # POR QUE MUDOU (21/09/2026): com o autostart do systemd, o robo
+        # passou a ligar sozinho no boot. Com o default True ele subia
+        # com o corpo ARMADO, e bastava a autonomia ser ligada por
+        # qualquer motivo para sair andando. Aconteceu: um script que
+        # precisava mexer o SERVO ligou a autonomia (o head_servo_node
+        # exige isso) e o robo andou, com o operador tendo que tira-lo
+        # do chao.
+        #
+        # O mode_manager liga isto quando o modo SEGUIDOR e escolhido.
+        # Se ele nao estiver no ar, o robo simplesmente nao anda -- que
+        # e o lado certo para falhar.
+        self.declare_parameter('body_control_enabled', False)
 
         for name, default in _CONTROLLER_DEFAULTS.items():
             self.declare_parameter(name, default)
@@ -443,6 +457,7 @@ _CONTROLLER_DEFAULTS = {
     'preview_recovery_enabled': True,
     'preview_timeout': 0.40,
     'preview_confidence_min': 0.40,
+    'preview_memory_time': 2.0,
     'preview_ff_gain': 0.35,
     'preview_heading_gain': 0.40,
     'preview_ff_max_ratio': 0.30,

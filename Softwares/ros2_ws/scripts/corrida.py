@@ -34,7 +34,7 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, String, Float32
 
 CTRL = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                   history=HistoryPolicy.KEEP_LAST, depth=10)
@@ -56,6 +56,18 @@ class Corrida(Node):
     def __init__(self):
         super().__init__('corrida')
         self.en = self.create_publisher(Bool, '/controle/enable', CTRL)
+        # O modo decide se a percepcao assina as cameras. Sem ele em
+        # SEGUIDOR os nos de percepcao ficam sem inscricao (economia
+        # de CPU deliberada) e a corrida grava 45s de nada, em
+        # silencio -- aconteceu em 22/09/2026.
+        self.modo_pub = self.create_publisher(
+            String, '/robot/mode_request', CTRL
+        )
+        self.modo = '?'
+        self.create_subscription(
+            String, '/robot/mode',
+            lambda m: setattr(self, 'modo', m.data), CTRL
+        )
         self.b = None
         self.servo = 0.0
         self.vx = 0.0
@@ -98,6 +110,46 @@ class Corrida(Node):
     def _ws(self, m):
         if len(m.velocity) >= 4:
             self.rodas = list(m.velocity[:4])
+
+    def seguidor(self):
+        """Poe o modo em SEGUIDOR e espera a percepcao voltar ao ar."""
+        fim = time.time() + 8.0
+        while (time.time() < fim
+               and self.modo_pub.get_subscription_count() < 1):
+            rclpy.spin_once(self, timeout_sec=0.05)
+        if self.modo_pub.get_subscription_count() < 1:
+            raise SystemExit('mode_manager_node nao apareceu; abortando')
+        msg = String()
+        msg.data = 'SEGUIDOR'
+        fim = time.time() + 10.0
+        while time.time() < fim and self.modo != 'SEGUIDOR':
+            self.modo_pub.publish(msg)
+            rclpy.spin_once(self, timeout_sec=0.1)
+        if self.modo != 'SEGUIDOR':
+            raise SystemExit(f'modo ficou em {self.modo}; abortando')
+
+    def espera_percepcao(self, prazo=10.0):
+        """Aborta se /line/detection nao estiver chegando.
+
+        Sem isto a corrida roda o tempo inteiro com self.b None, nao
+        grava linha nenhuma e nao diz o motivo.
+        """
+        self.b = None
+        self.f = None
+        fim = time.time() + prazo
+        while time.time() < fim and (self.b is None or self.f is None):
+            rclpy.spin_once(self, timeout_sec=0.05)
+        faltando = []
+        if self.b is None:
+            faltando.append('/line/detection (inferior)')
+        if self.f is None:
+            faltando.append('/line_front/detection (superior)')
+        if faltando:
+            raise SystemExit(
+                'sem deteccao em ' + ', '.join(faltando)
+                + f' apos {prazo:.0f}s. Percepcao provavelmente desligada '
+                '(modo != SEGUIDOR). Abortando em vez de gravar nada.'
+            )
 
     def enable(self, valor):
         fim = time.time() + 5.0
@@ -250,6 +302,9 @@ def main():
     node = Corrida()
     linhas = []
     try:
+        node.seguidor()
+        node.espera_percepcao()
+        print(f'modo {node.modo}, percepcao no ar (duas cameras).')
         print(f'>>> AUTONOMIA LIGADA por {DURACAO:.0f}s -- '
               'mao no botao do ESP32 <<<')
         node.enable(True)
@@ -294,6 +349,14 @@ def main():
         print('>>> DESLIGANDO AUTONOMIA <<<')
         node.enable(False)
         for _ in range(20):
+            rclpy.spin_once(node, timeout_sec=0.05)
+        # Volta o modo para PARADO: deixar SEGUIDOR ligado significa
+        # deixar body_control_enabled true, e qualquer coisa que publique
+        # em /cmd_vel_auto depois disso move o robo.
+        parado = String()
+        parado.data = 'PARADO'
+        for _ in range(20):
+            node.modo_pub.publish(parado)
             rclpy.spin_once(node, timeout_sec=0.05)
         node.destroy_node()
         rclpy.shutdown()

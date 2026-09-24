@@ -4,13 +4,17 @@ Robô seguidor de linha com chassi mecanum 4x4, câmera inferior (percepção
 primária) + câmera superior em servo (preview/antecipação), controlado por
 Raspberry Pi (ROS 2 Jazzy) com interface de baixo nível num ESP32-S3.
 
-Este README é um guia de **operação e depuração** — comandos prontos para
-copiar/colar durante testes na bancada e na pista. Não é o design doc (esse
-fica nos comentários do próprio código e do `config/line_follower.yaml`).
+> 📘 **Para operar o robô, use o [OPERACAO.md](OPERACAO.md)**: parar,
+> ligar/parar/reiniciar a pilha, trocar de modo pelo menu e pelo ROS,
+> armar a autonomia, perfil de velocidade, menu do ESP32, resets, gravar
+> firmware e calibrações — conferido contra o código em 24/09/2026.
+> Este README guarda arquitetura, parâmetros, depuração e histórico; onde
+> os dois divergirem, **vale o OPERACAO.md**.
 
 > ⚠️ **Este robô anda de verdade.** Antes de habilitar autonomia, garanta
-> espaço livre, esteja de olho no robô e saiba o comando de STOP (seção
-> [Parar tudo, agora](#parar-tudo-agora)).
+> espaço livre, esteja de olho no robô e saiba como pará-lo
+> ([OPERACAO.md §1](OPERACAO.md#1-parar-o-robô-agora)). **O B1 longo do
+> menu não para o robô com a autonomia armada.**
 
 ---
 
@@ -228,6 +232,12 @@ colcon build --packages-select line_msgs robot_bringup --symlink-install && sour
 
 ## Subir o sistema
 
+> ⚠️ **A pilha já sobe sozinha no boot pelo `robo.service`.** Com o serviço
+> no ar, **não rode `ros2 launch`**: duas instâncias disputam as câmeras e
+> a serial. Ligar, parar e reiniciar: `sudo systemctl start|stop|restart
+> robo` ([OPERACAO.md §2](OPERACAO.md#2-a-pilha-ros-ligar-parar-reiniciar)).
+> Os comandos abaixo são para depuração, **com o serviço parado**.
+
 ```bash
 # sistema completo (2 cameras + percepcao + controle + servo + serial)
 ros2 launch robot_bringup line_follower.launch.py
@@ -248,13 +258,13 @@ ros2 launch robot_bringup line_follower.launch.py cameras:=false serial:=false
 Argumentos do launch: `params_file`, `cameras` (`true`/`false`), `serial`,
 `preview`, `port`. Todos com default sensato — normalmente só `port:=` muda.
 
-Ao subir, os 7 processos esperados são: `camera_bottom`, `camera_front`,
+Ao subir, os 10 nós esperados são: `camera_bottom`, `camera_front`,
 `line_perception_bottom`, `line_perception_front`, `line_follower_node`,
-`head_servo_node`, `motor_serial_node`.
+`head_servo_node`, `motor_serial_node`, `mode_manager_node`, `joy_node`,
+`joy_teleop_node`.
 
 ```bash
 ros2 node list
-# deve listar exatamente esses 7 (mais o proprio "ros2 launch" no ps aux)
 ```
 
 ## Parar tudo, agora
@@ -269,9 +279,15 @@ ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{}"
 # 2) Desliga a autonomia (o robo passa a obedecer so /cmd_vel, que esta zerado)
 ros2 topic pub --once /controle/enable std_msgs/msg/Bool "{data: false}"
 
-# 3) Ultimo recurso: mata a stack toda
-pkill -9 -f "ros2 launch robot_bringup|camera_node|line_perception_node|line_follower_node|head_servo_node|motor_serial_node"
+# 3) Ultimo recurso: para a pilha. Sem TWIST, o watchdog do ESP32 zera
+#    os motores em 200 ms. NAO use pkill: o robo.service (Restart=on-failure)
+#    sobe tudo de novo 10 s depois.
+sudo systemctl stop robo
 ```
+
+Mais rápido, no próprio robô: menu **MODO → Parado → B2 curto** (o Pi
+sempre desarma ao sair do SEGUIDOR). Numa corrida, **Ctrl-C** na
+`corrida.py`.
 
 Redundâncias já embutidas no sistema (não dependem de você digitar nada):
 - **Firmware do ESP32**: para os motores se não chegar `TWIST` novo em 200 ms.
@@ -282,9 +298,10 @@ Redundâncias já embutidas no sistema (não dependem de você digitar nada):
   (`RECOVERING` → `SAFE_STOP`), nunca avança "as cegas". Em `SAFE_STOP` o
   corpo fica parado mas a **cabeça continua varrendo**, procurando a
   linha (`scan_in_safe_stop`).
-- **Botão físico no ESP32**: alterna autonomia via menu local (`MENU,
-  CONTROL_TOGGLE`), independente do que o Pi estiver fazendo — sempre
-  funciona mesmo se o ROS travar.
+- **Menu do ESP32**: TESTES → CONTROLE ROS alterna a autonomia (`MENU,
+  CONTROL_TOGGLE`). **Atenção:** o B1 longo (parada de emergência do
+  menu) zera o comando no ESP32, mas **não desarma** — com a autonomia
+  armada o Pi manda `TWIST` a 50 Hz e o robô volta a andar em ~20 ms.
 
 ## Ligar/desligar autonomia (do jeito confiável)
 

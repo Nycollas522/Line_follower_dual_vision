@@ -15,7 +15,7 @@ cada roda a 100 Hz e é quem corta os motores se a comunicação cair.
 
 | pasta | conteúdo |
 |---|---|
-| **[`Softwares/`](Softwares/)** | Firmware do ESP32-S3 e a pilha ROS 2. Comece pelo [guia de operação](Softwares/ros2_ws/README.md). |
+| **[`Softwares/`](Softwares/)** | Firmware do ESP32-S3 e a pilha ROS 2. Para operar: [guia de operação](Softwares/ros2_ws/OPERACAO.md). Arquitetura e histórico: [README técnico](Softwares/ros2_ws/README.md). |
 | [`Eletronica/`](Eletronica/) | Placas e esquemáticos |
 | [`Mecanica/`](Mecanica/) | Chassi e modelos CAD |
 
@@ -71,6 +71,9 @@ imagem por `rqt` de um PC externo mesmo dirigindo na mão.
 > Escolher um modo **nunca arma a autonomia**. Modo diz quem tem
 > autoridade; armar é um ato separado.
 
+Trocar de modo pelo ROS, perfis de velocidade (SUAVE / MÉDIA / RÁPIDA) e o
+resto da operação: [guia de operação](Softwares/ros2_ws/OPERACAO.md).
+
 ---
 
 ## Resultados medidos
@@ -99,15 +102,22 @@ Levantar a câmera inferior de 87 para 110 mm elevaria o limite para
 
 ## Rodando
 
+No robô, a pilha **sobe sozinha no boot** (`robo.service`) em modo Parado.
+Ligar, parar, reiniciar, trocar de modo, rodar uma corrida e resetar:
+**[guia de operação](Softwares/ros2_ws/OPERACAO.md)**.
+
+Primeira instalação (workspace novo):
+
 ```bash
 cd Softwares/ros2_ws
 colcon build --symlink-install
 source install/setup.bash
-ros2 launch robot_bringup line_follower.launch.py serial:=true
+ros2 launch robot_bringup line_follower.launch.py serial:=true   # so sem o robo.service no ar
 ```
 
 > ⚠️ **Este robô anda de verdade.** Antes de armar a autonomia, garanta
-> espaço livre e saiba onde está o STOP.
+> espaço livre e saiba como pará-lo
+> ([guia, seção 1](Softwares/ros2_ws/OPERACAO.md#1-parar-o-robô-agora)).
 
 O [guia completo](Softwares/ros2_ws/README.md) tem calibração geométrica,
 tabela de diagnóstico sintoma → causa → ajuste, as armadilhas já

@@ -815,7 +815,16 @@ motor_serial_node:
     # elas passaram a concordar em +0.34 graus.
     # Para recalibrar apos mexer no suporte: robo parado sobre uma reta,
     # varra o pan e veja em que angulo as duas leituras coincidem.
-    servo_offset_deg: -3.0
+    #
+    # RECALIBRADO (24/09/2026), depois de o suporte ser realinhado a mao.
+    # Com -3.0 a superior media +14.7 graus de heading numa reta em que
+    # a inferior media -1.2. Varredura de +4 a +16 graus nos DOIS
+    # sentidos, medindo as duas cameras em cada ponto: a diferenca de
+    # heading cruza zero em +10.7 subindo e +8.8 descendo -> +9.8 (folga
+    # do servo ~1.9 graus; ele anda em degraus de ~2). Novo offset =
+    # -3.0 + 10.0. A folga sozinha deixa ~+/-4 graus de heading na
+    # superior, conforme o lado por onde a cabeca chega.
+    servo_offset_deg: 7.0
 
 # ---------------------------------------------------------------------
 #  MODO RC -- joystick DualShock 4 pelo Bluetooth da RASPBERRY

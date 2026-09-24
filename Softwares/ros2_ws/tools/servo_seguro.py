@@ -96,16 +96,46 @@ def trava_motores(percepcao=False):
 
 
 def liga_autonomia(node, ligar=True):
-    """Liga/desliga a autonomia -- so o servo responde, o corpo nao."""
+    """Liga/desliga a autonomia -- so o servo responde, o corpo nao.
+
+    CONFIRMA pelo /autonomy/state do motor_serial_node, que e a
+    autoridade. Em 24/09/2026 esta funcao esperava so 2 dos 3
+    assinantes de /controle/enable: o motor_serial ainda nao tinha sido
+    descoberto, perdeu o pedido, e o /autonomy/state=False dele (5 Hz)
+    desfez o "ligado" nos outros dois. A cabeca nao se mexeu e uma
+    varredura inteira de calibracao saiu com a imagem parada.
+    Ligar sem confirmacao levanta RuntimeError; desligar so avisa.
+    """
     pub = node.create_publisher(Bool, '/controle/enable', C)
-    fim = time.time() + 6.0
-    while time.time() < fim and pub.get_subscription_count() < 2:
-        rclpy.spin_once(node, timeout_sec=0.05)
-    msg = Bool()
-    msg.data = bool(ligar)
-    for _ in range(15):
-        pub.publish(msg)
-        rclpy.spin_once(node, timeout_sec=0.05)
+    estado = {'v': None}
+    sub = node.create_subscription(
+        Bool, '/autonomy/state',
+        lambda m: estado.__setitem__('v', bool(m.data)), C)
+    try:
+        fim = time.time() + 6.0
+        while (ligar and time.time() < fim
+               and pub.get_subscription_count() < 3):
+            rclpy.spin_once(node, timeout_sec=0.05)
+        msg = Bool()
+        msg.data = bool(ligar)
+        fim = time.time() + 5.0
+        while time.time() < fim:
+            pub.publish(msg)
+            estado['v'] = None
+            t0 = time.time()
+            # espera a PROXIMA publicacao do estado (5 Hz), nao uma velha
+            while time.time() - t0 < 0.5 and estado['v'] is None:
+                rclpy.spin_once(node, timeout_sec=0.05)
+            if estado['v'] == bool(ligar):
+                return
+        if ligar:
+            raise RuntimeError(
+                'motor_serial_node nao confirmou autonomia ligada em 5 s '
+                '(/autonomy/state); a cabeca nao se mexeria.')
+        print('AVISO: autonomia desligada sem confirmacao do motor_serial')
+    finally:
+        node.destroy_subscription(sub)
+        node.destroy_publisher(pub)
 
 
 def devolve(percepcao=True):

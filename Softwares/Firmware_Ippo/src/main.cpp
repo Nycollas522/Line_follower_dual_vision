@@ -209,11 +209,24 @@ void odometry(float dt) {
 
   // GUINADA: giroscopio como fonte primaria, encoder como apoio.
   //
-  // POR QUE (18/09/2026): a wz dos encoders sai da cinematica mecanum, e
-  // num mecanum os roletes patinam POR PROJETO -- girando no proprio
-  // eixo o robo desliza e as rodas quase nao andam. Entao o encoder
-  // SUPERESTIMA rotacao exatamente quando ela mais importa, na curva.
-  // O giroscopio mede a rotacao de verdade e nao sabe o que e patinagem.
+  // JUSTIFICATIVA CORRIGIDA EM 22/09/2026. A anterior dizia que "num
+  // mecanum os roletes patinam por projeto" e que por isso o encoder
+  // superestimava rotacao. ISSO ESTAVA ERRADO: o robo tinha uma roda
+  // montada FORA DO X, e era ela que fazia o robo deslizar ao girar no
+  // proprio eixo. Corrigida a montagem, as duas fontes concordam.
+  //
+  // MEDIDO com o robo no chao, girando por comando em regime:
+  //     wz 0.40 -> ganho giro/encoder 1.04
+  //     wz 0.80 -> ganho 0.96
+  //     wz 1.20 -> ganho 0.94
+  // Escala global 0.95: ha patinagem, mas PROGRESSIVA com a velocidade
+  // e modesta (6% a 1.2 rad/s), nao um efeito inerente e grande.
+  //
+  // O peso continua pendendo para o giroscopio, mas agora por RUIDO e
+  // nao por vies: o giroscopio tem 0.032 graus/s de ruido e vies que
+  // nao deriva (medido: -0.13169 -> -0.13170 em 60 s), enquanto a wz
+  // dos encoders herda a quantizacao das quatro rodas. O encoder entra
+  // como ancora sem vies, que e o que o giroscopio nao tem.
   //
   // MEDIDO antes de ligar isto: ruido 0.032 graus/s, vies -0.13169
   // rad/s que nao deriva (-0.13170 apos 60 s) e some na calibracao
@@ -293,9 +306,12 @@ void control(float dt) {
       pid[i].reset();
       motor.set(i, 0);
     } else {
-      float ff = ws.target[i] > 0
-        ? cfg.get().staticPwm
-        : -cfg.get().staticPwm;
+      // Feedforward PROPORCIONAL: o degrau vence o atrito estatico e
+      // o termo em kv entrega a velocidade pedida. Sem o termo em kv,
+      // todo o restante caia no integral, que e lento demais.
+      const float mag = cfg.get().staticPwm +
+          cfg.get().kvPwm * fabsf(ws.target[i]);
+      float ff = ws.target[i] > 0 ? mag : -mag;
       int u = lroundf(constrain(
         ff + pid[i].update(ws.target[i], ws.speed[i], dt),
         -float(cfg.get().pwmLimit),
@@ -553,6 +569,23 @@ void loop() {
     stop();
     imu.calibrate();
     fb.beep(2000, 150);
+  }
+  if (a == MenuAction::SHUTDOWN_PI) {
+    // ETAPA 1: so avisa. O Pi anota no log e NAO desliga.
+    Serial.println("MENU,SHUTDOWN_REQ");
+    fb.beep(1500, 200);
+  }
+  // Rearma a tela depois do pedido, para dar para testar varias vezes
+  // seguidas sem sair e voltar no menu.
+  //
+  // 1200 ms (era 4000). MEDIDO: com 4 s, cinco toques seguidos do
+  // operador viraram DOIS pedidos -- os outros tres caiam dentro da
+  // janela e sumiam em silencio, que faz parecer que funcionou quando
+  // metade se perdeu. 1200 ms ainda e muito acima de repique de botao
+  // (dezenas de ms), entao um toque continua valendo um pedido.
+  if (menu.shutdownState() == LocalMenu::Shutdown::PEDIDO &&
+      millis() - menu.shutdownAge() > 1200) {
+    menu.rearmaShutdown();
   }
   if (a == MenuAction::SET_MODE) {
     // O ESP32 PEDE o modo; quem manda de fato e o Pi, que responde com

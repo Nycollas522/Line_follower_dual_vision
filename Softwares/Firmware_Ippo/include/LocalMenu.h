@@ -12,6 +12,7 @@ enum class MenuAction : uint8_t {
   RESET_ENCODERS,
   CAL_IMU,
   SET_MODE,
+  SHUTDOWN_PI,
   SAVE,
   TOGGLE_ROS_CONTROL,
 };
@@ -29,6 +30,21 @@ class LocalMenu {
     IDLE = 0,      // nada dirige; cameras seguem publicando
     FOLLOWER = 1,  // seguidor de linha autonomo
     RC = 2,        // joystick; percepcao desligada para liberar CPU
+  };
+
+  // Etapas do desligamento da Raspberry.
+  //
+  // ETAPA 1 (22/09/2026): o Pi apenas REGISTRA o pedido, nao desliga.
+  // A primeira tentativa foi entregue sem teste possivel -- o ESP32
+  // precisava ser gravado e quem tem o robo e o operador -- e o Pi
+  // passou a desligar sozinho. O caminho de confirmacao que eu escrevi
+  // era INALCANCAVEL (ficava numa cadeia else-if depois do ramo de
+  // pressao longa, que captura tudo), entao a causa real nunca foi
+  // encontrada. Registrar sem desligar e o que permite encontra-la.
+  enum class Shutdown : uint8_t {
+    IDLE,
+    CONFIRMA,  // na tela, esperando pressao LONGA
+    PEDIDO,    // enviado; nesta etapa o Pi so anota no log
   };
 
   bool begin();
@@ -64,6 +80,15 @@ class LocalMenu {
   bool editing() const { return editingValue; }
   RobotMode currentMode() const { return mode; }
   uint8_t modeRequested() const { return modeIndex; }
+  Shutdown shutdownState() const { return shutdown; }
+  uint32_t shutdownAge() const { return shutdownSince; }
+  void rearmaShutdown() {
+    if (screen == Screen::SHUTDOWN) {
+      shutdown = Shutdown::CONFIRMA;
+    } else {
+      shutdown = Shutdown::IDLE;
+    }
+  }
   // O no serial avisa qual modo o Pi confirmou, para a tela nunca
   // mostrar um modo que o Pi nao esta de fato executando.
   void setModeFeedback(uint8_t m) {
@@ -94,6 +119,7 @@ class LocalMenu {
     HOST,      // IP da Raspberry e estado do ROS, empurrados pela serial
     DIAG,      // jitter do controle, CRC recusado, motivo da parada
     MODE,      // escolhe o que o Pi deve fazer: parado, seguidor ou RC
+    SHUTDOWN,  // pede desligamento seguro da Raspberry
   };
 
 
@@ -130,6 +156,8 @@ class LocalMenu {
   int servoAngle = 90;
   bool rosControlEnabled = false;
   RobotMode mode = RobotMode::IDLE;
+  Shutdown shutdown = Shutdown::IDLE;
+  uint32_t shutdownSince = 0;
   uint8_t modeIndex = 0;
 
  private:

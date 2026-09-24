@@ -15,6 +15,7 @@ void Settings::defaults() {
   d.maxWheelMps = Config::MAX_WHEEL_MPS;
   d.yawEncoderWeight = Config::YAW_ENCODER_WEIGHT;
   d.staticPwm = Config::STATIC_PWM_DEFAULT;
+  d.kvPwm = Config::KV_PWM_DEFAULT;
   d.pwmLimit = Config::PWM_LIMIT_DEFAULT;
   d.maxWzAccel = Config::MAX_WZ_ACCEL;
   d.halfL = Config::HALF_L;
@@ -54,6 +55,7 @@ void Settings::load() {
     Config::YAW_ENCODER_WEIGHT
   );
   d.staticPwm = p.getInt("stat", Config::STATIC_PWM_DEFAULT);
+  d.kvPwm = p.getFloat("kv", Config::KV_PWM_DEFAULT);
   d.pwmLimit = p.getInt("limit", Config::PWM_LIMIT_DEFAULT);
   d.maxWzAccel = p.getFloat("wzaccel", Config::MAX_WZ_ACCEL);
   d.halfL = p.getFloat("halfl", Config::HALF_L);
@@ -75,6 +77,16 @@ void Settings::load() {
     d.ticksRev *= 4.0f;
     d.imuYawAxis = Config::IMU_YAW_AXIS_DEFAULT;
     d.imuYawSign = Config::IMU_YAW_SIGN_DEFAULT;
+  }
+  if (ver < 3) {
+    // v2 -> v3: feedforward passou de degrau fixo para proporcional a
+    // velocidade. Os valores antigos gravados em NVS nao tem como saber
+    // disso, entao voltam ao default NOVO -- que foi medido, nao chutado.
+    d.staticPwm = Config::STATIC_PWM_DEFAULT;
+    d.kvPwm = Config::KV_PWM_DEFAULT;
+    d.pwmLimit = Config::PWM_LIMIT_DEFAULT;
+  }
+  if (ver < Config::SETTINGS_VERSION) {
     save();
     return;
   }
@@ -96,6 +108,7 @@ bool Settings::save() {
   p.putFloat("maxmps", d.maxWheelMps);
   p.putFloat("yawweight", d.yawEncoderWeight);
   p.putInt("stat", d.staticPwm);
+  p.putFloat("kv", d.kvPwm);
   p.putInt("limit", d.pwmLimit);
   p.putFloat("wzaccel", d.maxWzAccel);
   p.putFloat("halfl", d.halfL);

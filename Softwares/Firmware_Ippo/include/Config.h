@@ -40,7 +40,7 @@ constexpr uint32_t CONTROL_US = 10000;
 // SIGNIFICADO de um campo mudar -- sem isso o valor antigo continua em
 // NVS e o default novo nunca pega. A v2 marca a troca dos encoders para
 // decodificacao x4, que multiplica ticksRev por 4.
-constexpr uint32_t SETTINGS_VERSION = 2;
+constexpr uint32_t SETTINGS_VERSION = 3;
 
 // Baud da UART para o CH343. MEDIDO em 10/09/2026: a telemetria antiga
 // (209 B a 5 Hz) ocupava 9.1% de 115200. Com ODOM/WHEEL a 50 Hz o uso
@@ -57,8 +57,34 @@ constexpr uint32_t CMD_TIMEOUT_MS = 200;
 constexpr uint32_t MOTOR_PWM_HZ = 20000;
 constexpr uint8_t MOTOR_PWM_BITS = 8;
 constexpr int PWM_MAX = 255;
-constexpr int PWM_LIMIT_DEFAULT = 180;
-constexpr int STATIC_PWM_DEFAULT = 100;
+// FEEDFORWARD DA MALHA DE VELOCIDADE, medido em 22/09/2026.
+//
+// O antigo era um degrau FIXO de 100 PWM em qualquer velocidade. Medindo
+// o motor sob carga (robo girando no proprio eixo, no chao):
+//
+//     PWM 138 -> roda faz 0.0136 m/s      PWM 158 -> 0.1820 m/s
+//     ajuste: v = 0.00857*pwm - 1.1797
+//     limiar de atrito 138 PWM   ganho 117 PWM por m/s
+//
+// Ou seja, os 100 PWM ficavam 38 ABAIXO do ponto em que a roda comeca a
+// andar. Quem cobria a diferenca era o integral, e ele leva ~10 s para
+// somar os 36 PWM que faltam com o erro tipico -- num seguidor cujo
+// comando muda toda hora, ele nunca chega la. Era isso que fazia a
+// entrega cair para 27% do pedido em giro lento.
+//
+// Agora o feedforward acompanha o alvo:  ff = STATIC + KV * |alvo|
+//
+// ATENCAO: estes numeros foram medidos GIRANDO NO CHAO, que e a carga
+// mais pesada (os roletes raspam de lado). Andando em linha reta a carga
+// e menor, entao o ff sobra um pouco e o PID corrige para baixo -- que e
+// o lado seguro para errar.
+constexpr int STATIC_PWM_DEFAULT = 138;
+constexpr float KV_PWM_DEFAULT = 117.0f;
+
+// 200 (era 180). Com o ff proporcional, 0.30 m/s ja pede 173 PWM e
+// sobrariam 7 para o PID corrigir -- apertado demais. 200 de 255 e 78%
+// de duty, com folga para o PID sem forcar o motor.
+constexpr int PWM_LIMIT_DEFAULT = 200;
 
 constexpr float WHEEL_D_M = 0.078f;
 constexpr float WHEEL_C = PI * WHEEL_D_M;

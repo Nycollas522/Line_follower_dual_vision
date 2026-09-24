@@ -172,7 +172,7 @@ MenuAction LocalMenu::update(Settings& cfg) {
       if (screen == Screen::STATUS) {
         screen = Screen::HOME;
       } else if (screen == Screen::HOME) {
-        homeTab = (uint8_t) ((homeTab + 5 + direction) % 5);
+        homeTab = (uint8_t) ((homeTab + 6 + direction) % 6);
       } else if (screen == Screen::MODE) {
         modeIndex = (uint8_t) ((modeIndex + 3 + direction) % 3);
       } else if (screen == Screen::CONFIG_LIST) {
@@ -213,12 +213,29 @@ MenuAction LocalMenu::update(Settings& cfg) {
         case 1: screen = Screen::CONFIG_LIST; break;
         case 2: screen = Screen::TEST_LIST; break;
         case 3: screen = Screen::HOST; break;
-        default: screen = Screen::DIAG; break;
+        case 4: screen = Screen::DIAG; break;
+        default:
+          screen = Screen::SHUTDOWN;
+          shutdown = Shutdown::CONFIRMA;
+          break;
       }
     } else if (screen == Screen::MODE) {
       // B2 confirma o modo destacado. O Pi so muda de comportamento
       // quando recebe isto -- ate la a tela mostra o modo ANTIGO.
       action = MenuAction::SET_MODE;
+    } else if (screen == Screen::SHUTDOWN) {
+      // TOQUE CURTO confirma, a pedido do operador.
+      //
+      // Continua exigindo DOIS toques no total: um entra na tela (pelo
+      // HOME) e outro confirma. Nesta etapa nada e desligado, entao o
+      // toque curto e seguro e facilita justamente o que interessa
+      // agora -- disparar de proposito e ver se o log registra, para
+      // depois reconhecer um disparo que NAO foi de proposito.
+      if (shutdown == Shutdown::CONFIRMA) {
+        action = MenuAction::SHUTDOWN_PI;
+        shutdown = Shutdown::PEDIDO;
+        shutdownSince = now;
+      }
     } else if (screen == Screen::HOST || screen == Screen::DIAG) {
       screen = Screen::HOME;
     } else if (screen == Screen::CONFIG_LIST) {
@@ -493,6 +510,36 @@ void LocalMenu::draw(
     return;
   }
 
+  if (screen == Screen::SHUTDOWN) {
+    drawTopBar("DESLIGAR PI", battery, imuState, ros);
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    if (shutdown == Shutdown::PEDIDO) {
+      display.setCursor(2, BAR_H + 4);
+      display.println("Desligando...");
+      display.setCursor(2, BAR_H + 18);
+      display.println("NAO corte a energia");
+      display.setCursor(2, BAR_H + 28);
+      display.println("enquanto esta tela");
+      display.setCursor(2, BAR_H + 38);
+      display.println("estiver acesa.");
+      display.setCursor(2, BAR_H + 46);
+      display.println("Apagou = pode cortar.");
+      display.setCursor(2, 55);
+      display.printf("ha %lus", (unsigned long) ((millis() - shutdownSince) / 1000));
+    } else {
+      display.setCursor(2, BAR_H + 4);
+      display.println("Desligar a Raspberry");
+      display.setCursor(2, BAR_H + 14);
+      display.println("da Raspberry?");
+      display.setCursor(2, BAR_H + 30);
+      display.println("B2 confirma");
+      display.setCursor(2, BAR_H + 40);
+      display.println("B1 volta");
+    }
+    display.display();
+    return;
+  }
   if (screen == Screen::MODE) {
     drawTopBar("MODO", battery, imuState, ros);
     static const char* NOMES[3] = {"Parado", "Seguidor de linha", "RC (joystick)"};
@@ -521,11 +568,11 @@ void LocalMenu::draw(
   }
   if (screen == Screen::HOME) {
     drawTopBar("MENU", battery, imuState, ros);
-    static const char* ITENS[5] = {
+    static const char* ITENS[6] = {
       "Modo de operacao", "Configuracoes", "Testes",
-      "Host / IP", "Diagnostico"
+      "Host / IP", "Diagnostico", "Desligar Raspberry"
     };
-    drawList(ITENS, 5, homeTab, nullptr);
+    drawList(ITENS, 6, homeTab, nullptr);
     display.display();
     return;
   }

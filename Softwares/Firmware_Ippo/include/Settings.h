@@ -10,7 +10,8 @@ struct SettingsData {
   float battCal;
   float maxWheelMps;
   float yawEncoderWeight;
-  int staticPwm;
+  int staticPwm;    // PWM que vence o atrito estatico
+  float kvPwm;      // PWM adicional por m/s de alvo
   int pwmLimit;
   float maxWzAccel;
   float halfL;

@@ -601,6 +601,23 @@ class MotorSerialNode(Node):
                 self.get_logger().info(f'Menu do ESP32 pediu modo {nome}')
             return
 
+        if fields == ['MENU', 'STOP']:
+            # B1 longo no ESP32: parada de emergencia. O firmware ja parou
+            # e TRAVOU os motores (ignora TWIST ate rearmar ou entrar em
+            # SEGUIDOR/RC). Aqui o Pi para de pedir movimento: desarma e
+            # volta o modo para PARADO, o que tambem cala o joystick.
+            # Chega repetido (3x); as duas acoes sao idempotentes.
+            self._set_autonomy(False, source='parada de emergencia do ESP32')
+            msg = String()
+            msg.data = 'PARADO'
+            self.mode_req_pub.publish(msg)
+            self.get_logger().warn(
+                'PARADA DE EMERGENCIA pelo menu do ESP32 (B1 longo): '
+                'autonomia desarmada, modo -> PARADO.',
+                throttle_duration_sec=2.0,
+            )
+            return
+
         if fields == ['MENU', 'CONTROL_TOGGLE']:
             # O botao fisico do ESP32 e uma fonte legitima de comando.
             self._set_autonomy(not self._autonomy, source='menu do ESP32')

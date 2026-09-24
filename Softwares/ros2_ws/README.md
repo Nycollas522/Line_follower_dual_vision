@@ -13,8 +13,8 @@ Raspberry Pi (ROS 2 Jazzy) com interface de baixo nível num ESP32-S3.
 
 > ⚠️ **Este robô anda de verdade.** Antes de habilitar autonomia, garanta
 > espaço livre, esteja de olho no robô e saiba como pará-lo
-> ([OPERACAO.md §1](OPERACAO.md#1-parar-o-robô-agora)). **O B1 longo do
-> menu não para o robô com a autonomia armada.**
+> ([OPERACAO.md §1](OPERACAO.md#1-parar-o-robô-agora)). O **B1 longo** no
+> ESP32 para e trava os motores (firmware de 24/09/2026 em diante).
 
 ---
 
@@ -298,10 +298,10 @@ Redundâncias já embutidas no sistema (não dependem de você digitar nada):
   (`RECOVERING` → `SAFE_STOP`), nunca avança "as cegas". Em `SAFE_STOP` o
   corpo fica parado mas a **cabeça continua varrendo**, procurando a
   linha (`scan_in_safe_stop`).
-- **Menu do ESP32**: TESTES → CONTROLE ROS alterna a autonomia (`MENU,
-  CONTROL_TOGGLE`). **Atenção:** o B1 longo (parada de emergência do
-  menu) zera o comando no ESP32, mas **não desarma** — com a autonomia
-  armada o Pi manda `TWIST` a 50 Hz e o robô volta a andar em ~20 ms.
+- **B1 longo no ESP32**: para os motores e **trava** (ignora `TWIST`) até
+  alguém rearmar ou entrar em SEGUIDOR/RC; o Pi recebe `MENU,STOP`,
+  desarma e vai para PARADO. Funciona mesmo com o ROS travado (o robô
+  fica parado). TESTES → CONTROLE ROS alterna a autonomia.
 
 ## Ligar/desligar autonomia (do jeito confiável)
 

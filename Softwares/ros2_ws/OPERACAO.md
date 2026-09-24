@@ -39,6 +39,7 @@ Em ordem do mais rápido ao mais drástico:
 
 | Situação | O que fazer | Efeito |
 |---|---|---|
+| Qualquer momento, no robô | **B1 longo** (> 0,7 s, de qualquer tela) | Para os motores **e trava**; o Pi desarma e vai para PARADO (ver abaixo) |
 | Rodando `corrida.py` | **Ctrl-C** no terminal dela | Desliga a autonomia, volta o modo para PARADO e ainda grava o CSV |
 | Qualquer momento, no robô | Menu **MODO → Parado → B2 curto** | O Pi sai do SEGUIDOR e **sempre desarma** a autonomia |
 | Qualquer momento, no robô | Menu **TESTES → CONTROLE ROS → B2 curto** | Alterna a autonomia (liga ↔ desliga) |
@@ -46,12 +47,21 @@ Em ordem do mais rápido ao mais drástico:
 | Nada responde | `sudo systemctl stop robo` | A serial para de mandar comando e o **watchdog do ESP32 zera os motores em 200 ms** |
 | Último recurso | Cortar a energia dos motores | — |
 
-> ⚠️ **O B1 longo (parada de emergência do menu) NÃO basta com a autonomia
-> armada.** Ele zera o comando no ESP32, mas o Pi continua mandando
-> `TWIST` a 50 Hz e o robô volta a andar em ~20 ms. Ele só segura quando
-> ninguém no Pi está comandando (modo PARADO, ou autonomia desligada).
-> Use uma das linhas da tabela acima. Conferido em `main.cpp`: nada no
-> firmware bloqueia `TWIST` depois de um STOP.
+### Como o B1 longo funciona
+
+1. O ESP32 para os motores, centra a cabeça, apita e **passa a ignorar
+   todo comando de movimento do Pi** (LED de parado).
+2. Avisa o Pi (`MENU,STOP`); o Pi desarma a autonomia e põe o modo em
+   **PARADO** (o joystick também para). Aparece no log:
+   `PARADA DE EMERGENCIA pelo menu do ESP32`.
+3. **A trava só sai com uma ação explícita de voltar a andar**: armar a
+   autonomia de novo, ou entrar em SEGUIDOR ou RC (pelo menu ou pelo ROS).
+   A `corrida.py` faz isso sozinha na próxima corrida.
+4. Se o Pi não responder (ROS travado), o robô **continua parado**.
+
+> Até 24/09/2026 o B1 longo só zerava o comando e o `TWIST` do Pi (50 Hz)
+> fazia o robô voltar a andar em ~20 ms. Firmware anterior a essa data
+> não tem a trava.
 
 Proteções que funcionam sozinhas, sem ninguém fazer nada:
 
@@ -60,7 +70,8 @@ Proteções que funcionam sozinhas, sem ninguém fazer nada:
   no RC) por 0,3 s, manda zero.
 - **Seguidor:** perdeu a linha → desacelera → gira procurando
   (`RECOVERING`) → para (`SAFE_STOP`). Nunca avança às cegas.
-- **Bateria crítica:** o ESP32 para os motores sozinho.
+- **Bateria crítica:** o ESP32 **só avisa** (LED e OLED piscando, motivo
+  no DIAG); **não para os motores**. Pare você.
 
 ---
 
@@ -273,7 +284,7 @@ ros2 param set /line_follower_node v_max 0.30
 
 | Botão | Toque curto (< 0,25 s) | Toque médio (0,25–0,7 s) | Longo (> 0,7 s) |
 |---|---|---|---|
-| **B1** | avança / `+` na edição | volta | **parada de emergência** (ver aviso na seção 1) |
+| **B1** | avança / `+` na edição | volta | **parada de emergência travada** (seção 1) |
 | **B2** | entra / confirma / `−` na edição | — | sai da edição; fora dela, **salva e volta ao início** |
 
 ### Abas do início (B1 curto troca, B2 curto entra)

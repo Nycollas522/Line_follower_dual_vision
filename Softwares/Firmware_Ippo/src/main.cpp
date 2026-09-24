@@ -124,6 +124,15 @@ enum StopReason : uint8_t {
 };
 uint8_t stopReason = STOP_NONE;
 
+// PARADA DO MENU TRAVADA (24/09/2026). O B1 longo so zerava o comando: com
+// a autonomia armada o Pi manda TWIST a 50 Hz e o robo voltava a andar em
+// ~20 ms. Agora, depois do B1 longo, todo TWIST e IGNORADO ate o Pi
+// confirmar uma acao explicita de voltar a andar: armar de novo
+// (CONTROL_STATE,1) ou entrar em SEGUIDOR/RC (MODE_STATE,1 ou 2). O Pi,
+// ao receber MENU,STOP, desarma e pede PARADO -- respostas que NAO soltam
+// a trava. Sem resposta do Pi, o robo continua parado.
+bool paradaTravada = false;
+
 void stop() {
   cmd = {};
   appliedYaw = 0.0f;
@@ -527,8 +536,10 @@ void loop() {
     if (s.type == SerialProtocol::TWIST) {
       // TWIST,vx,vy,wz -- segue geometry_msgs/Twist: vy = lateral,
       // wz = giro (yaw).
-      cmd = {s.a, s.b, s.c};
-      lastCmd = millis();
+      if (!paradaTravada) {
+        cmd = {s.a, s.b, s.c};
+      }
+      lastCmd = millis();   // o link segue vivo mesmo travado
     } else if (s.type == SerialProtocol::STOP) {
       stopReason = STOP_ROS;
       stop();
@@ -554,10 +565,12 @@ void loop() {
       );
     } else if (s.type == SerialProtocol::MODE_STATE) {
       menu.setModeFeedback((uint8_t) s.a);
+      if (s.a > 0.5f) paradaTravada = false;   // SEGUIDOR ou RC confirmado
     } else if (s.type == SerialProtocol::INFO) {
       menu.setInfo(s.slot, s.text);
     } else if (s.type == SerialProtocol::CONTROL_STATE) {
       menu.setRosControlEnabled(s.a > 0.5f);
+      if (s.a > 0.5f) paradaTravada = false;   // rearmado de proposito
     }
   }
 
@@ -587,7 +600,14 @@ void loop() {
   if (a == MenuAction::STOP) {
     stopReason = STOP_MENU;
     stop();
+    paradaTravada = true;
     servoAponta(0);
+    // Tres vezes: o sentido ESP32 -> Pi nao tem CRC nem confirmacao, e o
+    // Pi trata o pedido repetido sem efeito colateral.
+    for (uint8_t i = 0; i < 3; i++) {
+      Serial.println("MENU,STOP");
+    }
+    fb.beep(1200, 250);
   }
   if (a == MenuAction::RESET_ODOM) {
     od = {};
@@ -647,6 +667,8 @@ void loop() {
     fb.set(LedState::BATTERY_CRITICAL);
   } else if (batt.state().low) {
     fb.set(LedState::BATTERY_LOW);
+  } else if (paradaTravada) {
+    fb.set(LedState::STOPPED);
   } else if (menu.editing()) {
     fb.set(LedState::MENU);
   } else {
